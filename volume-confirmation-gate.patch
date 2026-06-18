@@ -1,0 +1,66 @@
+# Relative-Volume Confirmation Gate — apply instructions
+#
+# Three edits. Nothing here changes risk %, stops, or trade mode.
+# After applying, restart the server, then validate in SHADOW/paper before live.
+# ============================================================================
+
+
+# ---------------------------------------------------------------------------
+# 1) strategy.py  — insert the gate right after the confirmation is accepted.
+#    Find this line in analyze():
+#
+#        info["confirmation"] = conf["type"]
+#
+#    and insert the block below immediately after it.
+# ---------------------------------------------------------------------------
+--- a/strategy.py
++++ b/strategy.py
+@@ analyze(): after  info["confirmation"] = conf["type"]
+     info["confirmation"] = conf["type"]
+
++    # --- relative-volume confirmation gate (7th checklist item) ---
++    # Participation behind the LTF confirmation: confirmation-bar tick volume
++    # vs the trailing 20-bar average on the trigger TF. Gated by params["vol_mult"].
++    _vm = float(params.get("vol_mult", 0.0) or 0.0)
++    _ci = next((i for i, b in enumerate(ltf) if b["t"] == conf["t"]), None)
++    if _ci is not None:
++        _win = [b["v"] for b in ltf[max(0, _ci - 20):_ci] if b.get("v")]
++        _avg = (sum(_win) / len(_win)) if _win else 0.0
++        _relv = (ltf[_ci]["v"] / _avg) if _avg > 0 else 1.0
++        info["relvol"] = round(_relv, 2)
++        if _vm > 0 and _relv < _vm:
++            info["note"] = "confirmation volume %.2fx < gate %.2fx" % (_relv, _vm)
++            return {"signal": None, "info": info}
++
+     # ----- build the trade ------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# 2) engine.py  — expose vol_mult to the engine. In params(), add this line
+#    alongside the other risk keys (e.g. next to "atr_buffer"):
+# ---------------------------------------------------------------------------
+        "atr_buffer": float(s.get("atr_buffer", 0.35)),
++       "vol_mult": float(s.get("vol_mult", 0.0)),
+
+
+# ---------------------------------------------------------------------------
+# 3) config.yaml  — add the startup default under the `risk:` block.
+#    Use 1.0 (validated sweet spot). Set 0.0 to disable.
+#    NOTE: also bump atr_buffer to 0.50 for the intraday combo if desired.
+# ---------------------------------------------------------------------------
+risk:
+  ...
+  atr_buffer: 0.50        # was 0.35 — widened (intraday premature-stop fix)
+  vol_mult: 1.0           # relative-volume confirmation gate (0 = off)
+
+
+# ---------------------------------------------------------------------------
+# Notes
+#  * backtest.py reads min_rr / atr_buffer / min_grade from settings; add
+#    vol_mult to its params dict too if you want it reflected in backtests:
+#        "vol_mult": float(s.get("vol_mult", 0.0)),
+#  * The dashboard Settings panel can expose vol_mult as a runtime-tunable
+#    field (DB value wins after first run), same as the other risk keys.
+#  * vol_mult is intentionally NOT inside the auto-tune agent's bounds, so the
+#    agent will not move it. Tune it manually via sanity runs.
+# ---------------------------------------------------------------------------

@@ -1,0 +1,77 @@
+# ===================================================================
+# SLC Trading Bot — configuration
+# Values here are STARTUP defaults. Anything also shown in the
+# dashboard Settings panel is runtime-tunable and stored in the DB;
+# the DB value wins after first run.
+# ===================================================================
+
+server:
+  host: 0.0.0.0          # listen on all interfaces so MT5 (other machine) can reach it
+  port: 8766
+
+engine:
+  poll_seconds: 20        # how often the engine evaluates fresh data
+  trading_mode: paper     # paper | live | off   (switchable from dashboard)
+  modes:                  # which strategy speeds run
+    - intraday            # bias 4h / setup 1h / trigger 15m
+    - swing               # bias 1d / setup 4h / trigger 1h
+  paper_start_balance: 10000.0
+
+risk:
+  risk_pct: 1.0           # % of balance risked per trade (A+ setups)
+  b_setup_risk_factor: 0.5  # B setups risk = risk_pct * this
+  min_rr: 2.0             # minimum reward:risk to take a trade
+  atr_buffer: 0.35        # SL buffer beyond sweep extreme, in ATR(14) of setup TF
+  vol_mult: 1.0           # relative-volume confirmation gate (0 = off)
+  max_concurrent: 2       # max open trades per mode
+  max_correlated: 3       # max simultaneous same-direction USD exposures
+  daily_stop_pct: 2.0     # halt new entries for the day at -2%
+  weekly_stop_pct: 5.0    # halt new entries for the week at -5%
+  min_grade: B            # A = only 6/6 setups; B = allow no-sweep trend taps at half risk
+  regime_max: 2.5         # ATR14/ATR100 above this = stand aside
+  regime_b_ban: 1.5       # above this, B setups banned
+  max_spread_frac: 0.10   # skip if spread > 10% of stop distance
+
+pairs:                    # default watchlist (toggle from dashboard)
+  enabled:
+    - EURUSD
+    - GBPUSD
+    - USDJPY
+    - AUDUSD
+    - XAUUSD
+    - XAGUSD
+    - BTCUSD
+    - ETHUSD
+
+telegram:
+  enabled: false          # flip to true after filling token + chat_id
+  bot_token: ""           # from @BotFather  (see README — 2 minute setup)
+  chat_id: ""             # your numeric chat id
+  notify_signals: true    # also notify on signals that were skipped by filters
+
+news_agent:               # news monitoring sub-agent (run: python news_agent.py)
+  live_mode: true         # true = act (paper SLs updated in DB; live SLs sent to MT5,
+                          # where the EA still refuses anything that loosens a stop)
+  server_url: http://127.0.0.1:8766   # must match server.port above
+  poll_seconds: 120
+  sentiment_threshold: 0.25   # |net score| needed to act on a position
+  close_loss_threshold: 0.5   # stronger adverse score needed to CUT a losing trade
+  trail_factor: 1.5           # trail distance = original risk x this
+  be_buffer_pips: 2.0
+  max_headline_age_hours: 2
+  min_headlines_required: 3
+  magic_filter: 770001        # ONLY manage SLC bot positions (0 = all — unsafe)
+  alerts_enabled: true        # market-wide headline alerts to Telegram
+  alert_min_score: 0.5
+  alert_max_per_cycle: 3
+
+agent:                    # self-evaluation / bounded auto-tuning
+  enabled: true
+  interval_min: 240       # evaluate every 4 hours
+  min_trades_per_eval: 15 # don't touch anything before this many closed trades
+  bounds:                 # the agent may ONLY move values inside these ranges
+    atr_buffer: [0.25, 0.60]
+    min_rr: [1.8, 3.0]
+    # The agent may also: raise min_grade B->A, disable/re-enable a symbol,
+    # disable a mode (intraday/swing). It may NEVER touch risk_pct,
+    # daily/weekly stops, max_concurrent, or trading_mode.

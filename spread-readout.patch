@@ -1,0 +1,150 @@
+# Spread readout — dashboard addition
+#
+# Adds a self-contained page at  http://localhost:<port>/spread  showing:
+#   - each open paper/shadow trade with its current + max spread (points)
+#   - a tally of stop-loss exits and how many were spread-induced
+# No edits to the existing dashboard/index.html. Two parts: engine + server.
+# Depends on dynamic-spread-SL.diff (which writes state/spread_trace.jsonl).
+# ============================================================================
+
+
+# ---------------------------------------------------------------------------
+# 1) engine.py — persist a running max spread per open trade.
+#    (a) add a module-level dict near the other module state at the top:
+# ---------------------------------------------------------------------------
+_open_spread: Dict[int, Dict[str, Any]] = {}
+
+
+#    (b) inside manage_open_trades(), within the `if tr["mode"] in ("paper",
+#        "shadow"):` block, right AFTER the line `max_spr_pts = w.get(...)`,
+#        record the running max:
+            rec = _open_spread.setdefault(tr["id"],
+                                          {"symbol": tr["symbol"], "max_spread_pts": 0})
+            if (max_spr_pts or 0) > rec["max_spread_pts"]:
+                rec["max_spread_pts"] = max_spr_pts
+            rec["cur_spread_pts"] = price_info.get("spread")
+
+
+#    (c) at the END of manage_open_trades() (next to the px_window reset),
+#        prune closed trades and dump to disk:
+    open_ids = {t["id"] for t in open_trs}
+    for _tid in list(_open_spread):
+        if _tid not in open_ids:
+            _open_spread.pop(_tid, None)
+    try:
+        import json as _json, os as _os
+        _os.makedirs("state", exist_ok=True)
+        with open("state/open_spread.json", "w") as _f:
+            _json.dump({str(k): v for k, v in _open_spread.items()}, _f)
+    except Exception as _e:
+        print("open_spread dump error:", _e)
+
+
+# ---------------------------------------------------------------------------
+# 2) server.py — add the JSON endpoint and the self-contained page.
+#    Paste both routes alongside the other @app.route handlers.
+# ---------------------------------------------------------------------------
+@app.route("/api/spread")
+def api_spread():
+    import json as _json
+    feed = engine.get_feed()
+    prices = feed.get("prices", {})
+    try:
+        with open(os.path.join(BASE, "state", "open_spread.json")) as f:
+            osp = _json.load(f)
+    except Exception:
+        osp = {}
+
+    opens = []
+    for tr in storage.open_trades():
+        if tr["mode"] not in ("paper", "shadow"):
+            continue
+        pr = prices.get(tr["symbol"], {})
+        rec = osp.get(str(tr["id"]), {})
+        opens.append({
+            "id": tr["id"], "symbol": tr["symbol"], "side": tr["side"],
+            "mode": tr["mode"], "entry": tr["entry"], "sl": tr["sl"],
+            "cur_spread_pts": rec.get("cur_spread_pts", pr.get("spread")),
+            "max_spread_pts": rec.get("max_spread_pts"),
+        })
+
+    total = induced = 0
+    by_sym, recent = {}, []
+    try:
+        with open(os.path.join(BASE, "state", "spread_trace.jsonl")) as f:
+            lines = f.readlines()
+        for ln in lines:
+            try:
+                r = _json.loads(ln)
+            except Exception:
+                continue
+            total += 1
+            if r.get("spread_induced"):
+                induced += 1
+                by_sym[r["symbol"]] = by_sym.get(r["symbol"], 0) + 1
+        recent = [_json.loads(x) for x in lines[-8:] if x.strip()]
+    except Exception:
+        pass
+
+    return jsonify({"open": opens,
+                    "stops": {"total": total, "spread_induced": induced,
+                              "by_symbol": by_sym, "recent": recent}})
+
+
+@app.route("/spread")
+def spread_page():
+    from flask import Response
+    html = """<!doctype html><html><head><meta charset='utf-8'>
+<title>SLC — spread monitor</title><meta name='viewport' content='width=device-width,initial-scale=1'>
+<style>
+ body{font-family:system-ui,-apple-system,sans-serif;margin:0;padding:24px;background:#0f1115;color:#e7e9ee}
+ h1{font-size:18px;font-weight:600;margin:0 0 16px}
+ .cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+ .card{background:#171a21;border:1px solid #232733;border-radius:10px;padding:14px 18px;min-width:130px}
+ .card .label{font-size:12px;color:#9aa3b2}.card .val{font-size:24px;font-weight:600;margin-top:4px}
+ table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:24px}
+ th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #232733}
+ th{color:#9aa3b2;font-weight:500}
+ .warn{color:#f0b34a}.bad{color:#e26a6a}.ok{color:#5fc08a}
+ .pill{display:inline-block;padding:2px 8px;border-radius:6px;background:#232733;font-size:12px}
+ .muted{color:#9aa3b2}
+</style></head><body>
+<h1>Spread monitor <span class='muted' id='ts'></span></h1>
+<div class='cards'>
+ <div class='card'><div class='label'>Total SL exits</div><div class='val' id='c-total'>–</div></div>
+ <div class='card'><div class='label'>Spread-induced</div><div class='val bad' id='c-induced'>–</div></div>
+ <div class='card'><div class='label'>Open trades</div><div class='val' id='c-open'>–</div></div>
+ <div class='card'><div class='label'>Widest open spread</div><div class='val warn' id='c-wide'>–</div></div>
+</div>
+<h1 style='font-size:15px'>Open trades</h1>
+<table id='opent'><thead><tr><th>#</th><th>Symbol</th><th>Side</th><th>Mode</th>
+ <th>Cur spread</th><th>Max spread</th></tr></thead><tbody></tbody></table>
+<h1 style='font-size:15px'>Recent stops</h1>
+<table id='stopt'><thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Max spread</th><th>Cause</th></tr></thead><tbody></tbody></table>
+<script>
+async function load(){
+ const r=await fetch('/api/spread'); const d=await r.json();
+ document.getElementById('ts').textContent='· '+new Date().toLocaleTimeString();
+ document.getElementById('c-total').textContent=d.stops.total;
+ document.getElementById('c-induced').textContent=d.stops.spread_induced;
+ document.getElementById('c-open').textContent=d.open.length;
+ const wide=Math.max(0,...d.open.map(o=>o.max_spread_pts||0));
+ document.getElementById('c-wide').textContent=wide?wide.toFixed(1)+'p':'–';
+ const ob=document.querySelector('#opent tbody'); ob.innerHTML='';
+ d.open.forEach(o=>{const tr=document.createElement('tr');
+  const ms=o.max_spread_pts||0; const cls=ms>=10?'bad':ms>=4?'warn':'ok';
+  tr.innerHTML=`<td>${o.id}</td><td>${o.symbol}</td><td>${o.side}</td><td><span class='pill'>${o.mode}</span></td>`+
+   `<td>${o.cur_spread_pts!=null?o.cur_spread_pts.toFixed(1)+'p':'–'}</td>`+
+   `<td class='${cls}'>${ms?ms.toFixed(1)+'p':'–'}</td>`; ob.appendChild(tr);});
+ if(!d.open.length) ob.innerHTML="<tr><td colspan='6' class='muted'>no open paper/shadow trades</td></tr>";
+ const sb=document.querySelector('#stopt tbody'); sb.innerHTML='';
+ d.stops.recent.slice().reverse().forEach(s=>{const tr=document.createElement('tr');
+  const t=new Date((s.t||0)*1000).toLocaleString();
+  tr.innerHTML=`<td>${t}</td><td>${s.symbol}</td><td>${s.side}</td>`+
+   `<td>${s.max_spread_pts!=null?Number(s.max_spread_pts).toFixed(1)+'p':'–'}</td>`+
+   `<td class='${s.spread_induced?"bad":"muted"}'>${s.spread_induced?'spread-induced':'price'}</td>`; sb.appendChild(tr);});
+ if(!d.stops.recent.length) sb.innerHTML="<tr><td colspan='5' class='muted'>no stops recorded yet</td></tr>";
+}
+load(); setInterval(load,5000);
+</script></body></html>"""
+    return Response(html, mimetype="text/html")

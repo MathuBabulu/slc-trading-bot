@@ -1,0 +1,107 @@
+--- "/sessions/wizardly-hopeful-mccarthy/mnt/Price Action Strategy/trading-bot/engine.py"	2026-06-13 11:12:59.412046239 +0000
++++ engine.py	2026-06-15 16:19:09.155005492 +0000
+@@ -53,6 +53,42 @@
+ 
+ 
+ # ------------------------------------------------------------ feed in
++def _accum_px_window(p: Dict[str, Any]) -> None:
++    """Track the worst exit-side price and max spread seen on the 5s feed
++    BETWEEN 20s management cycles, so a spread blowout during news / session
++    rollover still counts against open stops even if it lands between polls."""
++    sym, bid, ask = p.get("symbol"), p.get("bid"), p.get("ask")
++    if sym is None or bid is None or ask is None:
++        return
++    spr = abs(ask - bid)
++    win = feed_state.setdefault("px_window", {})
++    w = win.get(sym)
++    if w is None:
++        win[sym] = {"min_bid": bid, "max_ask": ask,
++                    "max_spread": spr, "max_spread_pts": p.get("spread", 0)}
++    else:
++        w["min_bid"] = min(w["min_bid"], bid)
++        w["max_ask"] = max(w["max_ask"], ask)
++        if spr > w["max_spread"]:
++            w["max_spread"], w["max_spread_pts"] = spr, p.get("spread", 0)
++
++
++def _log_spread_event(tr: Dict[str, Any], max_spr: float,
++                      max_spr_pts: float, spread_induced: bool) -> None:
++    """Append a record so the real spread story of each stop is visible."""
++    try:
++        import json as _json, os as _os
++        _os.makedirs("state", exist_ok=True)
++        with open("state/spread_trace.jsonl", "a") as f:
++            f.write(_json.dumps({
++                "t": int(time.time()), "id": tr["id"], "symbol": tr["symbol"],
++                "side": tr["side"], "mode": tr["mode"], "sl": tr["sl"],
++                "max_spread_px": round(max_spr, 6), "max_spread_pts": max_spr_pts,
++                "spread_induced": bool(spread_induced)}) + "\n")
++    except Exception as e:
++        print("spread-trace log error:", e)
++
++
+ def ingest_feed(data: Dict[str, Any]) -> None:
+     with _feed_lock:
+         feed_state["account"] = data.get("account", {})
+@@ -61,6 +97,7 @@
+         feed_state["terminal"] = data.get("terminal", {})
+         for p in data.get("prices", []):
+             feed_state["prices"][p["symbol"]] = p
++            _accum_px_window(p)          # capture intra-cycle spread + extremes
+         feed_state["last_feed_t"] = time.time()
+ 
+ 
+@@ -430,7 +467,8 @@
+ 
+ 
+ def manage_open_trades(p: Dict) -> None:
+-    for tr in storage.open_trades():
++    open_trs = storage.open_trades()
++    for tr in open_trs:
+         price_info = feed_state["prices"].get(tr["symbol"])
+         if not price_info:
+             continue
+@@ -450,13 +488,29 @@
+             upd["mae"] = round(r_now, 2)
+ 
+         if tr["mode"] in ("paper", "shadow"):
+-            hit_sl = (cur <= tr["sl"]) if tr["side"] == "buy" else (cur >= tr["sl"])
++            # Dynamic-spread stop: evaluate against the WORST exit-side price
++            # seen on the 5s feed since the last cycle, not just this instant.
++            w = feed_state.get("px_window", {}).get(tr["symbol"], {})
++            worst_bid = min(bid, w.get("min_bid", bid))
++            worst_ask = max(ask, w.get("max_ask", ask))
++            max_spr = max(abs(ask - bid), w.get("max_spread", 0.0))
++            max_spr_pts = w.get("max_spread_pts", price_info.get("spread", 0))
++            sl_px = worst_bid if tr["side"] == "buy" else worst_ask
++            hit_sl = (sl_px <= tr["sl"]) if tr["side"] == "buy" else (sl_px >= tr["sl"])
+             hit_tp2 = (cur >= tr["tp2"]) if tr["side"] == "buy" else (cur <= tr["tp2"])
+             if hit_sl:
++                # did the SPREAD (not the mid) tag the stop?
++                mid_ext = (worst_bid + max_spr / 2) if tr["side"] == "buy" \
++                    else (worst_ask - max_spr / 2)
++                spread_induced = (mid_ext > tr["sl"]) if tr["side"] == "buy" \
++                    else (mid_ext < tr["sl"])
++                _log_spread_event(tr, max_spr, max_spr_pts, spread_induced)
+                 if upd:
+                     storage.update_trade(tr["id"], upd)
+-                _close_paper(tr, tr["sl"],
+-                             "stop loss" if not tr["tp1_done"] else "trailing stop")
++                base = "stop loss" if not tr["tp1_done"] else "trailing stop"
++                reason = base + (" [spread-induced, max %.1fp]" % max_spr_pts
++                                 if spread_induced else "")
++                _close_paper(tr, tr["sl"], reason)
+                 continue
+             if hit_tp2:
+                 if upd:
+@@ -528,6 +582,10 @@
+                        "Exit: <code>%.5f</code> | P&L: <b>%.2f</b> (%.2fR)"
+                        % (emoji, tr["side"].upper(), tr["symbol"], exit_price, pnl, r_mult))
+ 
++    # reset the spread window so the next cycle measures a fresh interval
++    # (it re-accumulates from the very next 5s feed push)
++    feed_state["px_window"] = {}
++
+ 
+ def manual_close(trade_id: int) -> bool:
+     tr = storage.query_one("SELECT * FROM trades WHERE id=? AND status='open'", (trade_id,))

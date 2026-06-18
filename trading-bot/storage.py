@@ -1,0 +1,285 @@
+"""SQLite persistence for the SLC trading bot.
+
+One file: data/trading.db. Thread-safe via a module-level lock —
+the engine, Flask handlers, and the agent all share this module.
+"""
+import json
+import os
+import sqlite3
+import threading
+import time
+from typing import Any, Dict, List, Optional
+
+_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "trading.db")
+_lock = threading.RLock()
+_conn: Optional[sqlite3.Connection] = None
+_recover = {"last": 0.0, "in_progress": False}
+_RECOVER_THROTTLE_S = 600        # at most one auto-recovery attempt per 10 min
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS bars (
+    symbol TEXT NOT NULL, tf TEXT NOT NULL, t INTEGER NOT NULL,
+    o REAL, h REAL, l REAL, c REAL, v REAL,
+    PRIMARY KEY (symbol, tf, t)
+);
+CREATE TABLE IF NOT EXISTS trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mode TEXT NOT NULL,              -- paper | live
+    trade_mode TEXT NOT NULL,        -- intraday | swing
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL,              -- buy | sell
+    status TEXT NOT NULL,            -- open | closed
+    grade TEXT,                      -- A | B
+    entry_time INTEGER, entry REAL, sl REAL, initial_sl REAL,
+    tp1 REAL, tp2 REAL,
+    lots REAL, risk_pct REAL, risk_amount REAL,
+    exit_time INTEGER, exit_price REAL,
+    pnl REAL DEFAULT 0, r_multiple REAL,
+    ticket INTEGER,                  -- MT5 position id (live only)
+    tp1_done INTEGER DEFAULT 0,
+    mfe REAL DEFAULT 0, mae REAL DEFAULT 0,
+    exit_reason TEXT, setup TEXT, signal_id INTEGER
+);
+CREATE TABLE IF NOT EXISTS signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    t INTEGER, symbol TEXT, trade_mode TEXT, side TEXT, grade TEXT,
+    entry REAL, sl REAL, tp REAL, rr REAL,
+    status TEXT,                     -- executed | skipped
+    reason TEXT, setup TEXT
+);
+CREATE TABLE IF NOT EXISTS equity (
+    t INTEGER, mode TEXT, balance REAL, equity REAL,
+    PRIMARY KEY (t, mode)
+);
+CREATE TABLE IF NOT EXISTS agent_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    t INTEGER, kind TEXT,            -- eval | change | info
+    action TEXT, detail TEXT
+);
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS commands (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    t INTEGER, type TEXT, payload TEXT,
+    status TEXT DEFAULT 'pending'    -- pending | sent | acked
+);
+CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status, mode);
+CREATE INDEX IF NOT EXISTS idx_signals_t ON signals(t);
+"""
+
+
+def init() -> None:
+    global _conn
+    with _lock:
+        os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
+        _conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
+        _conn.row_factory = sqlite3.Row
+        _conn.executescript(SCHEMA)
+        _conn.commit()
+
+
+def _is_corrupt(e: Exception) -> bool:
+    s = str(e).lower()
+    return ("malformed" in s or "is not a database" in s
+            or "disk image" in s or "database corruption" in s)
+
+
+def _attempt_recover() -> bool:
+    """On DB corruption, rebuild via sqlite3 .recover, verify integrity, swap
+    in, and switch to WAL. Throttled and lock-guarded; returns True on success.
+    Never raises — the caller degrades gracefully if this returns False."""
+    global _conn
+    import subprocess, shutil
+    sqlite_bin = shutil.which("sqlite3") or "/usr/bin/sqlite3"
+    if not os.path.exists(sqlite_bin) and shutil.which("sqlite3") is None:
+        print("[storage] cannot auto-recover: sqlite3 CLI not found")
+        return False
+    now = time.time()
+    if _recover["in_progress"] or (now - _recover["last"] < _RECOVER_THROTTLE_S):
+        return False
+    _recover["in_progress"] = True
+    _recover["last"] = now
+    try:
+        print("[storage] DB CORRUPTION detected — attempting .recover rebuild")
+        try:
+            if _conn is not None:
+                _conn.close()
+        except Exception:
+            pass
+        _conn = None
+        tmp = _DB_PATH + ".recovered"
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        p1 = subprocess.Popen([sqlite_bin, _DB_PATH, ".recover"], stdout=subprocess.PIPE)
+        p2 = subprocess.Popen([sqlite_bin, tmp], stdin=p1.stdout)
+        p1.stdout.close()
+        p2.communicate(timeout=180)
+        if p2.returncode != 0:
+            print("[storage] .recover failed (rc=%s)" % p2.returncode)
+            return False
+        chk = sqlite3.connect(tmp)
+        ok = chk.execute("PRAGMA integrity_check").fetchone()[0]
+        chk.close()
+        if ok != "ok":
+            print("[storage] recovered DB still not ok: %s" % ok)
+            return False
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        os.replace(_DB_PATH, _DB_PATH + ".corrupt-" + ts)
+        os.replace(tmp, _DB_PATH)
+        _conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
+        _conn.row_factory = sqlite3.Row
+        _conn.execute("PRAGMA journal_mode=WAL")
+        _conn.executescript(SCHEMA)
+        _conn.commit()
+        print("[storage] recovery OK — DB rebuilt + WAL enabled; corrupt copy kept")
+        return True
+    except Exception as e:
+        print("[storage] recovery error: %s" % e)
+        return False
+    finally:
+        _recover["in_progress"] = False
+
+
+def _c() -> sqlite3.Connection:
+    if _conn is None:
+        init()
+    return _conn  # type: ignore
+
+
+def execute(sql: str, params: tuple = ()) -> int:
+    with _lock:
+        try:
+            cur = _c().execute(sql, params)
+            _c().commit()
+            return cur.lastrowid or 0
+        except sqlite3.DatabaseError as e:
+            if _is_corrupt(e) and _attempt_recover():
+                cur = _c().execute(sql, params)
+                _c().commit()
+                return cur.lastrowid or 0
+            raise
+
+
+def query(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
+    with _lock:
+        try:
+            rows = _c().execute(sql, params).fetchall()
+            return [dict(r) for r in rows]
+        except sqlite3.DatabaseError as e:
+            if _is_corrupt(e):
+                if _attempt_recover():
+                    rows = _c().execute(sql, params).fetchall()
+                    return [dict(r) for r in rows]
+                return []          # don't crash the engine loop while throttled
+            raise
+
+
+def query_one(sql: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
+    rows = query(sql, params)
+    return rows[0] if rows else None
+
+
+# ---------------- settings (runtime-tunable, DB wins over yaml) ------
+def get_setting(key: str, default: Any = None) -> Any:
+    row = query_one("SELECT value FROM settings WHERE key=?", (key,))
+    if row is None:
+        return default
+    try:
+        return json.loads(row["value"])
+    except (json.JSONDecodeError, TypeError):
+        return row["value"]
+
+
+def set_setting(key: str, value: Any) -> None:
+    execute(
+        "INSERT INTO settings(key,value) VALUES(?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (key, json.dumps(value)),
+    )
+
+
+def all_settings() -> Dict[str, Any]:
+    out = {}
+    for r in query("SELECT key, value FROM settings"):
+        try:
+            out[r["key"]] = json.loads(r["value"])
+        except (json.JSONDecodeError, TypeError):
+            out[r["key"]] = r["value"]
+    return out
+
+
+# ---------------- bars -----------------------------------------------
+def store_bars(symbol: str, tf: str, bars: List[Dict[str, Any]]) -> None:
+    if not bars:
+        return
+    with _lock:
+        _c().executemany(
+            "INSERT OR REPLACE INTO bars(symbol,tf,t,o,h,l,c,v) VALUES(?,?,?,?,?,?,?,?)",
+            [(symbol, tf, b["t"], b["o"], b["h"], b["l"], b["c"], b.get("v", 0)) for b in bars],
+        )
+        _c().commit()
+
+
+def get_bars(symbol: str, tf: str, limit: int = 400) -> List[Dict[str, Any]]:
+    rows = query(
+        "SELECT t,o,h,l,c,v FROM bars WHERE symbol=? AND tf=? ORDER BY t DESC LIMIT ?",
+        (symbol, tf, limit),
+    )
+    return list(reversed(rows))
+
+
+# ---------------- trades ----------------------------------------------
+def insert_trade(tr: Dict[str, Any]) -> int:
+    cols = ",".join(tr.keys())
+    ph = ",".join("?" * len(tr))
+    return execute("INSERT INTO trades(%s) VALUES(%s)" % (cols, ph), tuple(tr.values()))
+
+
+def update_trade(trade_id: int, fields: Dict[str, Any]) -> None:
+    sets = ",".join("%s=?" % k for k in fields)
+    execute("UPDATE trades SET %s WHERE id=?" % sets, tuple(fields.values()) + (trade_id,))
+
+
+def open_trades(mode: Optional[str] = None) -> List[Dict[str, Any]]:
+    if mode:
+        return query("SELECT * FROM trades WHERE status='open' AND mode=?", (mode,))
+    return query("SELECT * FROM trades WHERE status='open'")
+
+
+# ---------------- command queue (server -> EA) ------------------------
+def enqueue_command(cmd_type: str, payload: Dict[str, Any]) -> int:
+    return execute(
+        "INSERT INTO commands(t,type,payload,status) VALUES(?,?,?,'pending')",
+        (int(time.time()), cmd_type, json.dumps(payload)),
+    )
+
+
+def next_command() -> Optional[Dict[str, Any]]:
+    row = query_one("SELECT * FROM commands WHERE status='pending' ORDER BY id LIMIT 1")
+    if row is None:
+        return None
+    payload = json.loads(row["payload"])
+    payload["id"] = str(row["id"])
+    payload["type"] = row["type"]
+    return payload
+
+
+def ack_command(cmd_id: str) -> bool:
+    with _lock:
+        cur = _c().execute("UPDATE commands SET status='acked' WHERE id=?", (cmd_id,))
+        _c().commit()
+        return cur.rowcount > 0
+
+
+# ---------------- misc -------------------------------------------------
+def log_agent(kind: str, action: str, detail: str = "") -> None:
+    execute(
+        "INSERT INTO agent_log(t,kind,action,detail) VALUES(?,?,?,?)",
+        (int(time.time()), kind, action, detail),
+    )
+
+
+def record_equity(mode: str, balance: float, equity: float) -> None:
+    execute(
+        "INSERT OR REPLACE INTO equity(t,mode,balance,equity) VALUES(?,?,?,?)",
+        (int(time.time()) // 60 * 60, mode, balance, equity),
+    )

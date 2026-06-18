@@ -1,0 +1,127 @@
+# CLAUDE.md — SLC Trading Bot
+
+Canonical instructions for Claude Code (and any AI agent) working in this repo. Read this
+before touching anything. The chat-side Claude Project mirrors these rules; this file is the
+source of truth for the repo.
+
+## What this is and what we're building toward
+
+The **SLC Price Action Trading Bot** implements the SLC (Structure · Liquidity · Confirmation)
+price-action playbook for Forex, metals and crypto. A single Python process ingests live MT5
+data via the `SLCDataBridge` Expert Advisor, runs the strategy at intraday/swing speeds,
+trades it through MT5, manages every position to playbook rules, and reports to a web
+dashboard plus Telegram/Discord. A bounded self-tuning agent and a news-monitoring agent run
+alongside it inside hard safety rails.
+
+**Objective:** this is being built to trade **live**. Paper mode is the current state and the
+*validation gate*, not the end goal. The plan is paper → prove it → promote to live. The
+safety rails below are not "anti-live" — they are how we survive once real money is on the
+line, so they apply in paper and live alike (and matter more live).
+
+`SLC-Price-Action-Playbook.md` is the north star. The code is an honest implementation of it;
+when code and playbook disagree, the playbook is the intended behavior and the gap is a bug.
+
+## Repo layout
+
+| Path | Role |
+|---|---|
+| `SLC-Price-Action-Playbook.md` | the strategy this code implements (north star) |
+| `trading-bot/server.py` | Flask app, EA endpoints, serves dashboard, starts threads |
+| `trading-bot/engine.py` | SLC signal execution, paper broker, live command queue, trade mgmt, spread window |
+| `trading-bot/strategy.py` | pure SLC + chart-pattern logic (structure, liquidity, sweep, confirmation) |
+| `trading-bot/storage.py` | SQLite (WAL), runtime settings **including credentials** |
+| `trading-bot/agent.py` | bounded self-tuning (whitelisted params only) |
+| `trading-bot/notifier.py`, `telegram_notifier.py` | dual-channel Telegram + Discord |
+| `trading-bot/news_agent.py`, `news_evaluator.py` | RSS news monitor + SL management (separate process) |
+| `trading-bot/backtest.py`, `sanity_check.py` | replay + parameter sweep |
+| `trading-bot/config.yaml` | startup defaults (DB values win after first run) |
+| `SLCDataBridge.mq5` / `.original.mq5` | MT5 data-bridge EA (v2.30) and baseline |
+| `slc-*.skill` | four Cowork skills to operate the bot conversationally |
+| `*-REPORT.md`, `*.patch`, `*.diff`, `volume_gate_shadow.py`, `recover-db.sh`, `hallucination_check.py` | experiments, validation, ops tooling |
+
+`trading-bot/data/` (the SQLite DB) and `trading-bot/state/` (logs, decisions, traces) are
+**runtime state and are gitignored** — see Security.
+
+## Run / dev
+
+```bash
+cd trading-bot
+pip install -r requirements.txt
+python3 server.py          # prints dashboard URL + LAN IP; dashboard at http://localhost:8766
+python3 news_agent.py      # separate process; restart after changing notification settings
+```
+
+Then attach the `SLCDataBridge` EA in MT5 and allow-list the WebRequest URL — see
+`SETUP-GUIDE.md`.
+
+## Authoritative config (some docs are stale — don't be misled)
+
+- Live system uses **port 8766** and the **`SLCDataBridge`** EA (v2.30, magic 770001).
+  `trading-bot/README.md` and parts of `SETUP-GUIDE.md` still say port 8765 / `MT5DataBridge`
+  — ignore that. `config.yaml` and the DB settings are authoritative.
+- Current mode **paper**, active speed **swing**. Risk 1% per A+ trade, min RR 2.5, ATR
+  buffer 0.35, daily stop −2%, weekly −5%, volume gate `vol_mult = 1.0`, 22 enabled pairs.
+
+## Safety invariants (hold in paper AND live — never weaken)
+
+1. **Paper is the default/safe state.** Live is the goal, but only via the promotion gate below.
+2. Going live requires BOTH `AllowTradeExecution = true` in the EA inputs AND a deliberate
+   dashboard switch with confirmation. Never script, automate, or shortcut around that double gate.
+3. **Never widen or loosen a stop.** The EA itself refuses any stop change that loosens a stop —
+   never write code that bypasses that refusal.
+4. The self-tuning agent may only nudge a small whitelist of parameters. It must **never** touch
+   `risk_pct`, stops, `max_concurrent`, or `trading_mode`.
+5. The self-tuning agent never restarts services and never flips to live. Reject any change that
+   grants it those powers.
+6. Shadow trades are silent: they never notify and are never tuned on as if live. Keep
+   paper/live and shadow strictly separate.
+7. **Never act on numbers from a corrupt DB.** If integrity is in doubt, run
+   `hallucination_check.py` (read-only) / `recover-db.sh` first.
+8. Risk ≤ 1% per trade — 1% only for 6/6 A+ setups in a normal regime, otherwise 0.5%.
+9. Daily **−2%** and weekly **−5%** kill switches are hard stops.
+10. After 3 consecutive losses, halve risk until 2 consecutive wins.
+11. No averaging down, no revenge trades, no moving stops away from price.
+12. Stand aside in shock regime (ATR(14)/ATR(100) > 2.5); don't hold a scalp through a known
+    data release with a stop inside the expected spike range.
+13. **Secrets never live in source.** They live only in the runtime DB (entered via the
+    dashboard). Never commit `data/` or `state/`; rotate any credential the moment it's exposed.
+
+## Going-live promotion gate (the actual milestone)
+
+Before flipping any account to live:
+- **≥ 50 closed paper trades with positive expectancy** on the current parameter set (playbook §12).
+- Behavior changes since the last validation re-tested in paper or shadow first.
+- Daily/weekly kill switches, breakeven-at-TP1, and stop-loss management verified working in paper.
+- DB integrity clean (`hallucination_check.py` green).
+- If another system manages stops on the same MT5 account, only one runs live at a time.
+- Start live at minimum size; treat the first live trades as a continuation of forward-testing.
+
+## Security
+
+The original team archive bundled live runtime data on purpose. In this repo, secrets do **not**
+go in git:
+- `trading-bot/data/` and `trading-bot/state/` are gitignored. The Telegram token, chat ID,
+  Discord webhook, MT5 login and LAN IPs only ever existed in the DB/logs — keep it that way.
+- Re-enter Telegram/Discord credentials through the dashboard on each deployment. The code is
+  written for exactly this (secrets in the DB at runtime, never in source).
+- If a secret is exposed: Telegram → @BotFather `/revoke`; Discord → delete/recreate the webhook;
+  paste the new value into the dashboard. See `SECURITY.md`.
+
+## How to work in this repo
+
+- Don't edit anything under `data/` or `state/` — that's runtime state.
+- Back up before editing `config.yaml`, `strategy.py`, or `engine.py` (the project already
+  timestamps backups under `.backups/`).
+- Treat `config.yaml` as the source of truth for runtime params; the DB wins after first run.
+- Prefer changes that are paper-validated or shadow-tested before they affect live behavior.
+- When you change behavior, state which file and why, and which invariant(s) you checked it against.
+
+## Open items (not done — see DEVELOPMENT-HISTORY.md)
+
+EA tick-accurate spread reporting (untested MQL5 draft), paper commission/swap modelling (not
+built), per-level `force` flag (deferred), TP2/runner trailing leaving gains on the table
+(swing winners avg +1.16R but capture only +0.16R), symbol culling deferred until ~15+ trades
+per pair, and launchd service-name / doc inconsistencies to reconcile.
+
+---
+*Educational trading software, not financial advice. See `LICENSE.md`.*
