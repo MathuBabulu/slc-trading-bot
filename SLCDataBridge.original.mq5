@@ -9,7 +9,7 @@
 //|    1. Open MT5 → Tools → Options → Expert Advisors               |
 //|    2. Tick "Allow WebRequest for listed URL"                     |
 //|    3. Add:  http://<ServerHost>:<ServerPort>                     |
-//|       e.g. http://127.0.0.1:8765                            |
+//|       e.g. http://192.168.68.104:8765                            |
 //|       (one entry covers every endpoint this EA uses)             |
 //|    4. Attach this EA to any chart (e.g. EURUSD M1)               |
 //|                                                                  |
@@ -28,7 +28,7 @@
 // is derived from these two values at startup, so changing servers means
 // editing one host instead of five URLs. If MT5 runs on the SAME Mac as
 // the server, use "127.0.0.1".
-input string   ServerHost         = "127.0.0.1";  // Server IP/hostname (use 127.0.0.1 if same machine)
+input string   ServerHost         = "192.168.68.104";  // Server IP/hostname (use 127.0.0.1 if same machine)
 input int      ServerPort         = 8766;              // Server port (config.yaml → server.port)
 
 //--- Data push inputs

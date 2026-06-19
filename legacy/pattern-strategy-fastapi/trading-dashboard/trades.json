@@ -1,0 +1,113 @@
+{
+  "account": {
+    "currency": "USD",
+    "balance": 0.0,
+    "broker": ""
+  },
+  "generatedAt": "2026-06-08T08:47:09.363452+00:00",
+  "isMockData": false,
+  "trades": [
+    {
+      "ticket": 1001238,
+      "symbol": "EURUSD",
+      "setup": "IHS",
+      "timeframe": "M15",
+      "category": "LIVE",
+      "side": "buy",
+      "entry": 1.0812,
+      "sl": 1.079,
+      "tp": 1.086,
+      "openTime": "2026-05-25T11:00:00+00:00",
+      "closeTime": "2026-05-25T15:00:00+00:00",
+      "pnl": 46.0,
+      "rr": 2.18,
+      "comment": "IHS-M15",
+      "adherence": {
+        "score": 100,
+        "broken": []
+      }
+    },
+    {
+      "ticket": 1001237,
+      "symbol": "USOIL",
+      "setup": "REC",
+      "timeframe": "H1",
+      "category": "TELEGRAM",
+      "side": "buy",
+      "entry": 78.4,
+      "sl": 77.9,
+      "tp": 79.5,
+      "openTime": "2026-05-24T10:00:00+00:00",
+      "closeTime": "2026-05-24T16:00:00+00:00",
+      "pnl": 53.5,
+      "rr": 2.2,
+      "comment": "REC-H1|TG",
+      "adherence": {
+        "score": 100,
+        "broken": []
+      }
+    },
+    {
+      "ticket": 1001236,
+      "symbol": "USDCAD",
+      "setup": "DT",
+      "timeframe": "H4",
+      "category": "LIVE",
+      "side": "sell",
+      "entry": 1.3642,
+      "sl": 1.3672,
+      "tp": 1.3554,
+      "openTime": "2026-05-23T14:00:00+00:00",
+      "closeTime": "2026-05-24T02:15:00+00:00",
+      "pnl": -60.0,
+      "rr": -0.97,
+      "comment": "DT-H4|tag mismatch test",
+      "adherence": {
+        "score": 100,
+        "broken": []
+      }
+    },
+    {
+      "ticket": 1001235,
+      "symbol": "XAUUSD",
+      "setup": "DB",
+      "timeframe": "H1",
+      "category": "LIVE",
+      "side": "buy",
+      "entry": 2342.5,
+      "sl": 2336.0,
+      "tp": 2358.0,
+      "openTime": "2026-05-23T08:00:00+00:00",
+      "closeTime": "2026-05-23T11:45:00+00:00",
+      "pnl": 67.5,
+      "rr": 2.11,
+      "comment": "DB-H1",
+      "adherence": {
+        "score": 100,
+        "broken": []
+      }
+    },
+    {
+      "ticket": 1001234,
+      "symbol": "GBPUSD",
+      "setup": "HS",
+      "timeframe": "H1",
+      "category": "LIVE",
+      "side": "sell",
+      "entry": 1.2745,
+      "sl": 1.2768,
+      "tp": 1.2699,
+      "openTime": "2026-05-22T09:15:00+00:00",
+      "closeTime": "2026-05-22T14:30:00+00:00",
+      "pnl": 86.0,
+      "rr": 2.0,
+      "comment": "HS-H1|right shoulder confirmed",
+      "adherence": {
+        "score": 100,
+        "broken": []
+      }
+    }
+  ],
+  "openPositions": [],
+  "_source": "parse_mt5_report.py (test_fixture.html)"
+}

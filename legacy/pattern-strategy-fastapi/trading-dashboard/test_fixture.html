@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head><title>Account History Report</title></head>
+<body>
+<div>
+  <b>Name:</b> Test Trader<br>
+  <b>Account:</b> 12345678<br>
+  <b>Currency:</b> USD<br>
+  <b>Broker:</b> SampleBroker-Demo<br>
+  <b>Balance:</b> 10250.50<br>
+</div>
+
+<table border="1" cellspacing="1" cellpadding="3">
+  <tr><th colspan="14">Closed Positions</th></tr>
+  <tr>
+    <th>Time</th><th>Position</th><th>Symbol</th><th>Type</th><th>Volume</th>
+    <th>Price</th><th>S/L</th><th>T/P</th>
+    <th>Time</th><th>Price</th>
+    <th>Commission</th><th>Swap</th><th>Profit</th><th>Comment</th>
+  </tr>
+  <tr>
+    <td>2026.05.22 09:15:00</td><td>1001234</td><td>GBPUSD</td><td>sell</td><td>0.10</td>
+    <td>1.27450</td><td>1.27680</td><td>1.26990</td>
+    <td>2026.05.22 14:30:00</td><td>1.26990</td>
+    <td>-2.00</td><td>0.50</td><td>87.50</td><td>HS-H1|right shoulder confirmed</td>
+  </tr>
+  <tr>
+    <td>2026.05.23 08:00:00</td><td>1001235</td><td>XAUUSD</td><td>buy</td><td>0.05</td>
+    <td>2342.50</td><td>2336.00</td><td>2358.00</td>
+    <td>2026.05.23 11:45:00</td><td>2356.20</td>
+    <td>-1.00</td><td>0</td><td>68.50</td><td>DB-H1</td>
+  </tr>
+  <tr>
+    <td>2026.05.23 14:00:00</td><td>1001236</td><td>USDCAD</td><td>sell</td><td>0.20</td>
+    <td>1.36420</td><td>1.36720</td><td>1.35540</td>
+    <td>2026.05.24 02:15:00</td><td>1.36710</td>
+    <td>-3.00</td><td>1.20</td><td>-58.20</td><td>DT-H4|tag mismatch test</td>
+  </tr>
+  <tr>
+    <td>2026.05.24 10:00:00</td><td>1001237</td><td>USOIL</td><td>buy</td><td>0.50</td>
+    <td>78.40</td><td>77.90</td><td>79.50</td>
+    <td>2026.05.24 16:00:00</td><td>79.50</td>
+    <td>-1.50</td><td>0</td><td>55.00</td><td>REC-H1|TG</td>
+  </tr>
+  <tr>
+    <td>2026.05.25 11:00:00</td><td>1001238</td><td>EURUSD</td><td>buy</td><td>0.10</td>
+    <td>1.08120</td><td>1.07900</td><td>1.08600</td>
+    <td>2026.05.25 15:00:00</td><td>1.08600</td>
+    <td>-2.00</td><td>0</td><td>48.00</td><td>IHS-M15</td>
+  </tr>
+</table>
+
+<div><b>Total Net Profit:</b> 200.80</div>
+</body>
+</html>

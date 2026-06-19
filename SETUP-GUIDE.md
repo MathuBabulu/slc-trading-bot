@@ -17,7 +17,7 @@ Your existing MT5DataBridge/8765 system is not touched by anything below.
    ```bash
    ipconfig getifaddr en0
    ```
-   Example result: `192.168.1.50`. (If empty, try `en1`.)
+   Example result: `192.168.68.104`. (If empty, try `en1`.)
 5. Keep this Terminal window open. The server must stay running.
    - Optional: prevent the Mac from sleeping while it runs:
      `caffeinate -i python3 server.py`
@@ -42,7 +42,7 @@ Your existing MT5DataBridge/8765 system is not touched by anything below.
    - ☑ Allow WebRequest for listed URL
 3. In the URL list, **add a new line** (keep the existing `:8765` entry for your old system):
    ```
-   http://192.168.1.50:8766
+   http://192.168.68.104:8766
    ```
    (your Mac IP from Phase 1, step 4 — must be `http://`, no trailing slash)
 4. Click OK.
@@ -61,7 +61,7 @@ Your existing MT5DataBridge/8765 system is not touched by anything below.
 
    | Input | Set to | Why |
    |---|---|---|
-   | `ServerHost` | your Mac IP (e.g. `192.168.1.50`) | where server.py runs; `127.0.0.1` only if MT5 runs on the same Mac |
+   | `ServerHost` | your Mac IP (e.g. `192.168.68.104`) | where server.py runs; `127.0.0.1` only if MT5 runs on the same Mac |
    | `ServerPort` | `8766` (already default) | must match config.yaml and the WebRequest URL |
    | `AllowTradeExecution` | **false** | leave false for paper trading — flip only when going live |
    | `MaxLotsPerTrade` | e.g. `1.0` | broker-side hard cap for later live use |
@@ -76,7 +76,7 @@ Your existing MT5DataBridge/8765 system is not touched by anything below.
 8. **Check the Experts tab** (Toolbox/Terminal panel at the bottom) for these lines within ~10 s:
    ```
    SLCDataBridge v2.30: started.
-     Server : http://192.168.1.50:8766
+     Server : http://192.168.68.104:8766
      Push   : .../api/mt5_feed  every 5s
      Bars   : .../api/mt5_bars  every 60s
    ```

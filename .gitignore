@@ -1,0 +1,52 @@
+# ── Python ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ── OS / editor junk ───────────────────────────────────
+.DS_Store
+.fuse_hidden*
+*.swp
+.idea/
+.vscode/
+
+# ── SQLite transient sidecars & corrupt dumps ──────────
+# (the main data/trading.db IS tracked in this archive by choice — see SECURITY.md)
+*.db-wal
+*.db-shm
+*.corrupt-*
+*.bad-*
+.write_test
+
+# ── Large/rotating logs (optional: keep the repo light) ─
+# trading-bot/state/*.log
+# trading-bot/state/*.launchd.log
+
+# ── RECOMMENDED if you switch to a clean, public repo ──
+# Uncomment to stop tracking runtime data + live credentials,
+# then: git rm --cached -r trading-bot/data trading-bot/state trading-bot/.backups
+# trading-bot/data/
+# trading-bot/state/
+# trading-bot/.backups/
+
+# ── Hardened for GitHub (added) — never track runtime data, logs, or secrets ──
+trading-bot/data/
+trading-bot/state/
+trading-bot/.backups/
+*.db
+*.db-wal
+*.db-shm
+*.log
+*.launchd.log
+.env
+*.env
+secrets.*
+*secret*.yaml
+*secret*.yml
+
+# legacy build runtime (reference build is code+docs+dataset only)
+legacy/pattern-strategy-fastapi/trading-bot/state/
+legacy/pattern-strategy-fastapi/trading-bot/data/

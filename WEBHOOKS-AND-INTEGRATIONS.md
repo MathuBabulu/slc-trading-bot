@@ -68,8 +68,8 @@ distinguishable from other bots sharing the same Telegram account.
 
 ```
 telegram_enabled = true
-telegram_bot_token = <SET-VIA-DASHBOARD>
-telegram_chat_id   = <SET-VIA-DASHBOARD>
+telegram_bot_token = <YOUR_TELEGRAM_BOT_TOKEN>
+telegram_chat_id   = <YOUR_CHAT_ID>
 ```
 
 Re-create from scratch if needed: message **@BotFather** → `/newbot` → copy token; message your bot
@@ -89,7 +89,7 @@ message to Discord markdown and POSTs it to the webhook URL in parallel with Tel
 
 ```
 discord_enabled     = true
-discord_webhook_url  = <SET-VIA-DASHBOARD>
+discord_webhook_url  = <YOUR_DISCORD_WEBHOOK_URL>
 ```
 
 Re-create from scratch if needed: Discord → Server Settings → Integrations → Webhooks → New Webhook →

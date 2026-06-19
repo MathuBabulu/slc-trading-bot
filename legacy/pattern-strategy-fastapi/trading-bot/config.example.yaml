@@ -1,0 +1,409 @@
+# =====================================================================
+# Price-Action Trading Bot — configuration
+# TEMPLATE. Copy to config.yaml and fill in your own values.
+# NEVER commit a real config.yaml with live secrets to a PUBLIC repo.
+# =====================================================================
+
+# -------- Account ----------------------------------------------------
+account:
+  mode: paper          # paper | live   (live is stubbed in v1)
+  starting_equity: 100000  # ₹1,00,000 starting capital (raised from 10k on 12 Jun)
+  currency: INR        # match your MT5 account's deposit currency
+
+# -------- Instruments ------------------------------------------------
+# ALL pairs from the dashboard catalog (42). Bar/price data comes from the
+# MT5DataBridge EA. `display` must match your BROKER's symbol name.
+#  * Standard FX pairs below already match most brokers.
+#  * NON-FX (indices, crypto, energy) symbol names VARY by broker — if your
+#    broker calls them differently (e.g. US30->DJ30, BTCUSD->XBTUSD), set the
+#    correct name here AND add a SymbolAliases entry in the EA. The engine
+#    simply finds no bars (and safely skips) any symbol the broker doesn't push.
+#  * pip_value here is a COLD-START FALLBACK only — once the EA connects, the
+#    live SYMBOL_TRADE_TICK_VALUE drives exact position sizing.
+# SCOPE REDUCED (10 Jun 2026, see strategy-study/STRATEGY_ANALYSIS_WAYFORWARD.md):
+# trade ~12 liquid pairs until each setup×timeframe cell has a meaningful sample
+# (50+ trades). The full 42-instrument catalog is preserved in the commented
+# block below — uncomment entries to re-enable them.
+# NOTE: the dashboard's state/enabled_pairs.json OVERRIDES this list; it was
+# reset to match. Re-enabling here requires updating the dashboard too.
+instruments:
+  # ── Forex majors ──
+  - symbol: EURUSD
+    display: EURUSD
+    pip_size: 0.0001
+    pip_value: 10.0
+  - symbol: GBPUSD
+    display: GBPUSD
+    pip_size: 0.0001
+    pip_value: 10.0
+  - symbol: USDJPY
+    display: USDJPY
+    pip_size: 0.01
+    pip_value: 7.0
+  - symbol: AUDUSD
+    display: AUDUSD
+    pip_size: 0.0001
+    pip_value: 10.0
+  - symbol: USDCAD
+    display: USDCAD
+    pip_size: 0.0001
+    pip_value: 8.0
+  - symbol: USDCHF
+    display: USDCHF
+    pip_size: 0.0001
+    pip_value: 8.0
+  - symbol: NZDUSD
+    display: NZDUSD
+    pip_size: 0.0001
+    pip_value: 10.0
+  # ── JPY crosses (best performers in the first sample) ──
+  - symbol: EURJPY
+    display: EURJPY
+    pip_size: 0.01
+    pip_value: 7.0
+  - symbol: GBPJPY
+    display: GBPJPY
+    pip_size: 0.01
+    pip_value: 7.0
+  - symbol: AUDJPY
+    display: AUDJPY
+    pip_size: 0.01
+    pip_value: 7.0
+  - symbol: CADJPY
+    display: CADJPY
+    pip_size: 0.01
+    pip_value: 7.0
+  - symbol: CHFJPY
+    display: CHFJPY
+    pip_size: 0.01
+    pip_value: 7.0
+  # ── DISABLED — full catalog kept for easy re-enable ──────────────────
+  # - {symbol: EURGBP, display: EURGBP, pip_size: 0.0001, pip_value: 8.0}
+  # - {symbol: EURAUD, display: EURAUD, pip_size: 0.0001, pip_value: 8.0}
+  # - {symbol: EURNZD, display: EURNZD, pip_size: 0.0001, pip_value: 8.0}
+  # - {symbol: GBPAUD, display: GBPAUD, pip_size: 0.0001, pip_value: 8.0}
+  # - {symbol: GBPCAD, display: GBPCAD, pip_size: 0.0001, pip_value: 8.0}
+  # - {symbol: NZDJPY, display: NZDJPY, pip_size: 0.01,   pip_value: 7.0}
+  # - {symbol: AUDCAD, display: AUDCAD, pip_size: 0.0001, pip_value: 8.0}
+  # - {symbol: AUDCHF, display: AUDCHF, pip_size: 0.0001, pip_value: 8.0}
+  # - {symbol: AUDNZD, display: AUDNZD, pip_size: 0.0001, pip_value: 8.0}
+  # - {symbol: EURCAD, display: EURCAD, pip_size: 0.0001, pip_value: 8.0}
+  # - {symbol: EURCHF, display: EURCHF, pip_size: 0.0001, pip_value: 8.0}
+  # ── Metals ──
+  # - {symbol: XAUUSD, display: XAUUSD, pip_size: 0.1,   pip_value: 1.0}
+  # - {symbol: XAGUSD, display: XAGUSD, pip_size: 0.001, pip_value: 1.0}
+  # - {symbol: XPTUSD, display: XPTUSD, pip_size: 0.1,   pip_value: 1.0}
+  # ── Crypto ──
+  # - {symbol: BTCUSD, display: BTCUSD, pip_size: 0.01, pip_value: 1.0}
+  # - {symbol: ETHUSD, display: ETHUSD, pip_size: 0.01, pip_value: 1.0}
+  # - {symbol: LTCUSD, display: LTCUSD, pip_size: 0.01, pip_value: 1.0}
+  # - {symbol: XRPUSD, display: XRPUSD, pip_size: 0.01, pip_value: 1.0}
+  # - {symbol: BNBUSD, display: BNBUSD, pip_size: 0.01, pip_value: 1.0}
+  # - {symbol: SOLUSD, display: SOLUSD, pip_size: 0.01, pip_value: 1.0}
+  # ── Energy ──  (dashboard name USOIL; EA auto-maps to broker e.g. USOUSD)
+  # - {symbol: USOIL,  display: USOIL,  pip_size: 0.01,  pip_value: 10.0}
+  # - {symbol: UKOIL,  display: UKOIL,  pip_size: 0.01,  pip_value: 10.0}
+  # - {symbol: NATGAS, display: NATGAS, pip_size: 0.001, pip_value: 10.0}
+  # ── Indices ──
+  # - {symbol: US30,   display: US30,   pip_size: 0.1, pip_value: 1.0}
+  # - {symbol: US500,  display: US500,  pip_size: 0.1, pip_value: 1.0}
+  # - {symbol: NAS100, display: NAS100, pip_size: 0.1, pip_value: 1.0}
+  # - {symbol: GER40,  display: GER40,  pip_size: 0.1, pip_value: 1.0}
+  # - {symbol: UK100,  display: UK100,  pip_size: 0.1, pip_value: 1.0}
+  # - {symbol: JPN225, display: JPN225, pip_size: 0.1, pip_value: 1.0}
+  # - {symbol: AUS200, display: AUS200, pip_size: 0.1, pip_value: 1.0}
+
+# -------- Timeframes -------------------------------------------------
+# MT5DataBridge EA pushes M15, M30, H1, H2, H4, D1 bars natively
+# (no resampling needed). Each timeframe here is scanned for patterns.
+# SCOPE REDUCED: 15m/30m dropped — they generated ~50% of detector noise and the
+# only confirmed-bad outcomes. Re-add by uncommenting once higher-TF results are proven.
+timeframes:
+  # - 15m
+  # - 30m
+  - 1h
+  - 2h
+  - 4h
+  - 1d
+
+# How many recent bars to keep in memory per (instrument, timeframe)
+lookback_bars: 300
+
+# -------- Execution / fills ------------------------------------------
+execution:
+  # DYNAMIC SPREAD (ADDED 15 Jun 2026): the paper router costs each exit at the
+  # spread prevailing on THAT bar — the EA's per-bar max spread if available,
+  # otherwise the engine samples the broker's current spread from the live feed.
+  # This lets news / session-rollover widening realistically hit a stop, exactly
+  # as it would live. No config needed; it's always on for the paper router.
+  #
+  # spread_stress — OPTIONAL synthetic widening for on-demand rehearsal. OFF by
+  # default so the sim runs on REAL broker spread (closest to a live scenario).
+  # When enabled, the effective spread is multiplied inside the listed UTC time
+  # windows — e.g. the daily 23:55–00:10 rollover, or a news window you set.
+  spread_stress:
+    enabled: false
+    windows:
+      # - { start: "23:55", end: "00:10", multiplier: 5.0 }   # session rollover
+      # - { start: "12:28", end: "12:35", multiplier: 8.0 }   # e.g. NFP/CPI release
+
+# -------- Strategy ---------------------------------------------------
+strategy:
+  # SCOPE REDUCED: only the proven core (DT/DB) trades live. TL is disabled until
+  # validated offline (PF 0.11 in the first sample; produced the NAS100 disaster).
+  # The dashboard's state/enabled_patterns.json OVERRIDES these flags; it was
+  # reset to match.
+  patterns:
+    double_top:    true
+    double_bottom: true
+    head_shoulders: false   # H&S top (sell)
+    inverse_hs:    false    # inverse H&S bottom (buy)
+    triple_top:    false    # three equal peaks (sell)
+    triple_bottom: false    # three equal troughs (buy)
+    rectangle:     false    # range edges — sell the top, buy the bottom
+    trendline:     false    # diagonal support/resistance bounce — DISABLED pending validation
+
+  # Pattern clarity score (0-100; touch precision, depth, spacing, cleanliness).
+  # Signals below min are rejected at stage "clarity". 0 = LOG-ONLY (no filtering)
+  # — keep at 0 until shadow data says where the cutoff earns its keep.
+  min_clarity_score: 0
+
+  # Per-level cooldown: suppress re-fires of the same level (same symbol ×
+  # timeframe × side within atr_mult×ATR of a recently signalled level).
+  cooldown:
+    enabled: true
+    atr_mult: 0.5
+    bars: 10
+
+  # Higher-timeframe context filter: reject a buy when the next TF up is in a
+  # downtrend (close < EMA AND lower swing-lows), mirrored for sells.
+  # Rejections are logged under their own stage "htf_context" so the gate's
+  # cost is measurable before trusting it.
+  htf_filter:
+    enabled: true
+    ema_period: 50
+    swings: 3            # how many recent swing lows/highs must be falling/rising
+
+  # Indicator filter — enhances the clarity score with technical confluence and
+  # gates out dead/frozen markets where pattern moves are noise.
+  #
+  #   rsi_period          : lookback for RSI (default 14, Wilder standard)
+  #   ema_long_period     : long EMA for trend alignment bonus (default 200)
+  #   volume_ma_period    : volume average lookback for surge detection (default 20)
+  #   atr_percentile_bars : ATR percentile rank lookback window (default 50)
+  #   dead_market_pct     : reject if ATR rank < this (default 0.15 = bottom 15%)
+  #                         set 0 to disable the dead-market gate entirely
+  #
+  # Clarity bonuses (non-blocking — they add to structural score, cap 100):
+  #   RSI confluence  +15   buy if RSI<40, sell if RSI>60
+  #   EMA200 aligned  +10   buy above EMA200, sell below
+  #   Volume surge    +10   current bar volume > 1.5× the 20-bar average
+  indicator_filter:
+    rsi_period: 14
+    ema_long_period: 200
+    volume_ma_period: 20
+    atr_percentile_bars: 50
+    dead_market_pct: 0.15    # skip signal if ATR is in bottom 15% of own history
+
+  # Volume profile confirmation (ADDED 15 Jun 2026) — NON-BLOCKING clarity bonus.
+  # Builds volume-at-price (POC / value area / high-volume nodes) and a
+  # tick-volume delta proxy from the SAME MT5 bars. NOTE: spot-FX "volume" is
+  # tick volume, not real traded volume, so this is a participation proxy, not
+  # true order-flow footprint (which doesn't exist for OTC FX).
+  #   node_tol_atr : entry counts as "at" a node if within this ×ATR of POC/HVN
+  #   node_bonus   : clarity points when the R2 retest is at a high-volume node
+  #   delta_bonus  : clarity points when recent delta proxy agrees with the side
+  #   delta_min    : minimum |normalised delta| (0-1) to count as agreement
+  # Shadow-test the effect before considering a hard gate. Set enabled:false off.
+  volume_profile:
+    enabled: true
+    lookback: 120          # bars used to build the profile
+    bins: 50               # price buckets across the lookback range
+    node_tol_atr: 0.25
+    node_bonus: 12.0
+    delta_bonus: 8.0
+    delta_lookback: 20
+    delta_min: 0.15
+
+  # Shadow mode: every gate-rejected signal is tracked to its hypothetical
+  # TP/SL and the outcome written to state/shadow_outcomes.jsonl.
+  # Analyze with: python3 tools/shadow_report.py
+  shadow_mode:
+    enabled: true
+    max_bars: 100        # give up (timeout) after this many bars without TP/SL
+
+  # Confirmation: candle anatomy (the "medium body" rule)
+  # REVERTED 15 Jun 2026 to 0.70. The 13 Jun lowering to 0.55 was justified by
+  # shadow data (n=278, avgR +1.68) that turned out to be look-ahead-contaminated
+  # (signals "resolving" on their own entry bar). After the entry-bar fill fix,
+  # the clean shadow win rate is ~61% (not 91%) and candle_anatomy is only +0.73R
+  # on n=33 — not a case for loosening. Re-evaluate after ~2 weeks of clean data.
+  confirmation:
+    min_body_ratio: 0.70    # body must be >= 70% of full range
+    max_opposing_wick_ratio: 0.30   # opposing wick <= 30% of full range
+    # Momentum: slow approach to the level (last N bars' avg true range
+    # must be <= this multiple of the prior baseline ATR)
+    momentum:
+      lookback_bars: 5
+      max_atr_ratio: 1.20   # last 5 bars' ATR <= 1.2x prior 14-bar ATR
+
+  # Correlation filter: confirm direction across correlated pairs, skip
+  # choppy markets, and avoid doubling the same correlated bet.
+  correlation:
+    enabled: true
+    lookback_bars: 100        # bars of returns used to compute correlation
+    strong_threshold: 0.70    # |r| >= this counts as strongly correlated
+    direction_lookback: 10    # bars used to gauge a peer's recent direction
+    block_on_conflict: true   # block a trade when a correlated peer disagrees on direction
+    ci_period: 14             # Choppiness Index lookback
+    ci_choppy_threshold: 61.8 # skip the signal if Choppiness Index > this (set 0 to disable)
+    dedupe_correlated: true   # among correlated co-firing signals, take only the cleanest
+
+# -------- Risk + safety rails ----------------------------------------
+risk:
+  per_trade_pct: 1.0        # % of equity at risk per trade (changed 16 Jun 2026 from 2.0)
+  min_rr: 2.0               # minimum reward:risk
+  daily_trade_cap: 3
+  weekly_trade_cap: 12
+  daily_loss_pct: 3.0       # halt new trades if today's loss exceeds this
+  max_drawdown_pct: 10.0    # halt all trading if total drawdown exceeds this
+  kill_switch_file: state/HALT   # touch this file to stop the bot
+  # Staged scale-out + trailing management (R = initial risk = |entry - SL|):
+  #   1:2 → close 50% of lots, move SL to break-even
+  #   1:3 → trail SL to entry +1R (lock +1R)
+  #   1:4 → trail SL to entry +2R (lock +2R); remainder then rides the stop
+  scale_out: true
+
+  # Lower-timeframe reversal exit:
+  # While a trade is open, watch the 2 timeframes just below it for a CONFIRMED
+  # opposing Double Top / Double Bottom (against the trade direction). If one
+  # forms, book part of the position early and protect the rest; otherwise the
+  # trade keeps running on its own timeframe.
+  #   1h trade  -> watch 30m + 15m
+  #   1d trade  -> watch 4h  + 2h   (4h->2h+1h, 2h->1h+30m, 30m->15m, 15m->none)
+  ltf_reversal_exit:
+    enabled: true
+    levels_down: 2          # how many timeframes below to watch
+    confirm: true           # require the same confirmation live entries use
+    close_fraction: 0.5     # close this fraction of the REMAINING position
+    move_sl_to_be: true     # move the runner's stop to break-even after the exit
+
+# -------- News filter ------------------------------------------------
+news:
+  source: forexfactory      # forexfactory | manual
+  forexfactory_url: https://www.forexfactory.com/calendar
+  manual_events_file: state/manual_news.json
+  block_minutes_before: 30
+  block_minutes_after: 30
+  high_impact_only: true
+
+# -------- Engine loop ------------------------------------------------
+engine:
+  poll_seconds: 60          # how often to check for new closed bars
+  initial_history_bars: 200 # how much history to pull at startup
+
+# -------- Server -----------------------------------------------------
+server:
+  host: 0.0.0.0             # listen on all interfaces so MT5 (VPS/VM) can reach this Mac
+  port: 8765
+  serve_dashboard: true     # also serve ../trading-dashboard/ at /
+
+# -------- News Monitoring Sub-Agent ---------------------------------
+# Run separately:  cd trading-bot && python news_agent.py
+#
+# live_mode: false  → decisions logged only (DRY-RUN, safe default)
+# live_mode: true   → commands sent to MT5 EA for actual SL changes
+#
+# Sentiment gate: news must score ≥ threshold to trigger an action.
+#   Higher = fewer (but stronger) signals.  0.25 is a balanced default.
+#
+# Trail factor: new trailing SL is placed (original_risk × trail_factor)
+#   behind current price.  1.5 = maintain 1.5× the original risk as buffer.
+#
+# BE buffer: pips added above entry for a buy (below for sell) when
+#   moving SL to break-even, to cover spread.
+#
+news_agent:
+  live_mode: true             # acts on the bot's PAPER positions (SL→BE / trail);
+                              # EA commands only reach real MT5 tickets, so this is
+                              # safe while the account is paper. Was false (dry-run),
+                              # which is why no SL was ever moved on news.
+  server_url: http://127.0.0.1:8765
+  poll_seconds: 120           # how often to check news (seconds)
+  max_headline_age_hours: 2   # ignore news older than this
+  sentiment_threshold: 0.25   # minimum |score| to trigger an action
+  trail_factor: 1.5           # trailing buffer = original_risk × this
+  be_buffer_pips: 2.0         # pips above entry when moving SL to BE
+  command_expire_seconds: 300 # command is discarded if EA doesn't ack within 5 min
+  min_headlines_required: 3   # skip evaluation if too few headlines fetched
+  request_timeout: 10         # HTTP timeout for news feeds (seconds)
+  # Market-wide news ALERTS → Telegram (headline + tap-to-expand details +
+  # likely impact per watched pair). Runs every cycle, even with no open
+  # positions — watches the dashboard-enabled pairs.
+  alerts_enabled: true
+  alert_min_score: 0.5        # |sentiment| a single headline needs to alert (0–1)
+  alert_max_per_cycle: 3      # cap alerts per cycle so Telegram isn't spammed
+  alert_dedupe_hours: 48      # never re-send the same headline within this window
+  # Cut-loss: when news is STRONGLY against a trade that's underwater (break-even
+  # impossible), close it at market. Gate is stricter than the BE move (−0.5 vs
+  # −0.25) because cutting a trade is more aggressive than tightening a stop.
+  cut_loss_enabled: true
+  cut_loss_threshold: 0.5
+  # Priority lane for presidential / social-media market movers: headlines
+  # containing these terms jump the alert queue and use a relaxed gate
+  # (alert_min_score × factor) — a single post can move pairs 1% instantly.
+  alert_priority_terms: ["trump", "white house", "truth social", "potus",
+                         "president", "tweet", "tweets", "executive order"]
+  alert_priority_factor: 0.7
+  # Alerts must be FRESH: items older than this (or with no provable publish
+  # time) are never alerted — stops re-coverage of yesterday's posts.
+  alert_max_age_minutes: 90
+  # Direct X (Twitter) source for presidential posts — zero wire delay.
+  # Get a bearer token at developer.x.com (free tier works for reads),
+  # paste it below and set enabled: true, then restart the news agent.
+  x_api:
+    enabled: true
+    bearer_token: "YOUR_X_BEARER_TOKEN"
+    usernames: ["realDonaldTrump", "POTUS"]
+
+# -------- Telegram Notifications ------------------------------------
+# Get a bot token from @BotFather in Telegram (see README for full setup).
+# Get your chat_id:
+#   1. Message your bot anything
+#   2. Open:  https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates
+#   3. Copy the "id" value from result[0].message.chat.id
+#
+# Per-event toggles: set any to false to silence that notification type.
+#
+# notifications.header is prepended as a bold title line to EVERY message on
+# BOTH channels (Telegram + Discord). Set to "" to disable the header.
+notifications:
+  header: "Pattern Strategy"
+
+telegram:
+  enabled: true
+  bot_token: "YOUR_TELEGRAM_BOT_TOKEN"
+  chat_id:   "YOUR_TELEGRAM_CHAT_ID"
+  notify_signal_detected: true          # 🔍 new pattern found
+  notify_order_filled:    true          # ✅ position opened
+  notify_news_outcome:    true          # 📈/🛡 news agent trail/BE decision
+  notify_news_alert:      true          # 🗞 market-news alert (headline + impact)
+
+# -------- Discord (mirrors the same notifications as Telegram) -------
+# Get a webhook URL: Discord → Server Settings → Integrations → Webhooks →
+# New Webhook → pick the channel → Copy Webhook URL. Paste it below, set
+# enabled: true, and restart the bot. The same alerts (signal / fill / news)
+# are sent to BOTH channels — the per-type toggles above govern both.
+discord:
+  enabled: true
+  webhook_url: "https://discord.com/api/webhooks/XXXXXXXX/YYYYYYYY"
+  username: "Pattern Strategy"
+
+# -------- Live MT5 (v2, ignored in paper mode) -----------------------
+mt5:
+  # When you set MT5 up, fill these in. NEVER commit a real config.yaml.
+  account_number: 0
+  server: ""
+  password_env_var: MT5_PASSWORD   # set the password in env, not here
+  magic_number: 24601
+  slippage_pips: 3

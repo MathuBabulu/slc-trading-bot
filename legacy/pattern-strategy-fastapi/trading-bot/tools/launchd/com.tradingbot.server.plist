@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradingbot.server</string>
+
+  <!-- zsh -lc gives the login PATH so `python3` resolves the same way as in
+       your terminal. __BOT_DIR__ is replaced by the installer. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd "__BOT_DIR__" &amp;&amp; exec python3 server.py</string>
+  </array>
+
+  <!-- Start at login AND restart automatically whenever the process exits
+       (crash, kill, unhandled exception). -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!-- Don't restart-storm if it crashes instantly (e.g. config typo). -->
+  <key>ThrottleInterval</key>
+  <integer>15</integer>
+
+  <key>StandardOutPath</key>
+  <string>__BOT_DIR__/state/launchd_server.log</string>
+  <key>StandardErrorPath</key>
+  <string>__BOT_DIR__/state/launchd_server.log</string>
+</dict>
+</plist>

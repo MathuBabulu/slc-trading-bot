@@ -116,6 +116,15 @@ go in git:
 - Prefer changes that are paper-validated or shadow-tested before they affect live behavior.
 - When you change behavior, state which file and why, and which invariant(s) you checked it against.
 
+## Multi-strategy scope (consolidated repo)
+
+This repo is the home for the whole effort, and is expanding beyond SLC. SLC is **strategy #1**.
+New strategies are added as **isolated modules behind the shared engine and the GLOBAL risk
+rails** — never fork the rails per strategy, never let one strategy's tuning touch another, and
+each new strategy clears its **own** ≥50-trade positive-expectancy paper gate before live. The
+earlier FastAPI/port-8765 build under `legacy/` is **superseded**: reference only (its labeled
+dataset, validation gallery, and context handoff), never deployed or merged.
+
 ## Open items (not done — see DEVELOPMENT-HISTORY.md)
 
 EA tick-accurate spread reporting (untested MQL5 draft), paper commission/swap modelling (not

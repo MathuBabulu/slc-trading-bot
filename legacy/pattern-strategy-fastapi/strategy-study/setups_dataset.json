@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "title": "Live-session setup catalog (labeled ground-truth dataset)",
+    "source": "14 PDFs: 'All Setups From Last Week Live Session' (~106 frames)",
+    "purpose": "Labeled examples of the price-action strategy, used to (a) build a knowledge base, (b) tune the bot's detection/confirmation/correlation thresholds, (c) validate the engine.",
+    "method": "106 frames auto-classified into 28 clean TradingView exports (exact prices) vs 78 live webcam frames (approx). Per the 'exports only' precision choice, the dataset is built from the clean exports; webcam frames are noted qualitatively in the knowledge base. The clean exports were read representatively across all 14 files.",
+    "IMPORTANT_survivorship_bias": "These PDFs are a curated WINNERS-ONLY highlight reel. Every example is a win. This tells us WHAT the strategy trades (patterns, timeframes, levels, ~1:2 R:R) but NOT its real win-rate or loss behaviour. Do NOT loosen risk caps or infer edge from this set.",
+    "schema": {
+      "id": "F<file>-P<page>",
+      "pair": "instrument", "timeframe": "15m/30m/1h/2h",
+      "broker": "chart data source", "direction": "long|short",
+      "pattern": "inferred setup", "context": "level the setup formed at",
+      "level": "key price (exact if clean export, else approx/na)",
+      "rr_est": "approx reward:risk", "outcome": "win|loss|unknown",
+      "price_readable": "bool", "frame_type": "clean_export|webcam", "notes": ""
+    }
+  },
+  "setups": [
+    {"id":"F01-P03","pair":"AUDNZD","timeframe":"1h","broker":"FXCM","direction":"short","pattern":"double_top / resistance_retest","context":"horizontal resistance","level":"1.2237","rr_est":"~1:2+","outcome":"win","price_readable":true,"frame_type":"clean_export","notes":"Two tests of 1.2237, rejection, dropped through target. Textbook resistance-retest short."},
+    {"id":"F02-P03","pair":"USOIL","timeframe":"1h","broker":"FXOpen","direction":"short","pattern":"double_top","context":"swing-high resistance","level":"~78.5","rr_est":"~1:2","outcome":"win","price_readable":true,"frame_type":"clean_export","notes":"Double top at the highs, sharp drop through target."},
+    {"id":"F02-P05","pair":"unclear (FX major)","timeframe":"1h","broker":"FXCM","direction":"long","pattern":"double_bottom / support_bounce","context":"support","level":"na","rr_est":"~1:2","outcome":"win","price_readable":false,"frame_type":"clean_export","notes":"Render too small to read pair; clear long off support that rallied into target."},
+    {"id":"F02-P07","pair":"CADCHF","timeframe":"1h","broker":"FXCM","direction":"short","pattern":"resistance_retest","context":"horizontal resistance","level":"~0.8175","rr_est":"~1:2","outcome":"win","price_readable":true,"frame_type":"clean_export","notes":"Short at the retest of ~0.8175; declined to target."},
+    {"id":"F03-P02","pair":"AUDNZD","timeframe":"2h","broker":"FXCM","direction":"long","pattern":"trend_pullback / support","context":"pullback support inside an uptrend","level":"na","rr_est":"~1:2","outcome":"win","price_readable":true,"frame_type":"clean_export","notes":"Buy the pullback to support during an uptrend; continued up into target. Same pair as F01-P03 but higher TF and opposite direction (trend context differs)."},
+    {"id":"F05-P07","pair":"GBPUSD","timeframe":"15m","broker":"FXCM","direction":"long","pattern":"support_bounce + rising_trendline","context":"horizontal support confluence with rising trendline","level":"1.3620","rr_est":"~1:2","outcome":"win","price_readable":true,"frame_type":"clean_export","notes":"Held 1.3620 support sitting on a rising trendline, rallied. M15 example."},
+    {"id":"F08-P07","pair":"GBPAUD","timeframe":"15m/30m","broker":"OANDA","direction":"long","pattern":"double_bottom + descending_trendline_break","context":"support ~2.0000 with falling trendline","level":"~2.0000","rr_est":"~1:2","outcome":"win","price_readable":true,"frame_type":"clean_export","notes":"Double bottom at 2.0000, broke the descending trendline, ran up. Shown on M15 and confirmed on M30."},
+    {"id":"F11-P05","pair":"USOIL","timeframe":"1h","broker":"FXOpen","direction":"short","pattern":"double_top","context":"swing-high resistance after uptrend","level":"~78.5","rr_est":"~1:2","outcome":"win","price_readable":true,"frame_type":"clean_export","notes":"Short the top of the move; dropped through target."},
+    {"id":"F12-P07","pair":"unclear (FX)","timeframe":"1h","broker":"FXCM","direction":"short","pattern":"resistance_retest","context":"resistance","level":"na","rr_est":"~1:2","outcome":"win","price_readable":false,"frame_type":"clean_export","notes":"Small render; short at resistance that fell into target."},
+
+    {"id":"F01-P01","pair":"NZDCAD","timeframe":"2h","broker":"FXCM","direction":"long","pattern":"support_bounce","context":"base at support + rising trendline","level":"~0.835 (approx)","rr_est":"~1:2","outcome":"win","price_readable":false,"frame_type":"webcam","notes":"Webcam frame (approx). Long off support, rallied into target."},
+    {"id":"F01-P02","pair":"NZDUSD","timeframe":"1h","broker":"FXCM","direction":"long","pattern":"double_bottom","context":"support after extended downmove","level":"na","rr_est":"~1:2","outcome":"win","price_readable":false,"frame_type":"webcam","notes":"Webcam frame (approx). Sharp rally into target."},
+    {"id":"F01-P04","pair":"BNBUSDT","timeframe":"1h","broker":"Binance","direction":"long","pattern":"trendline","context":"rising trendline support","level":"na","rr_est":"~1:2","outcome":"win","price_readable":false,"frame_type":"webcam","notes":"Webcam frame (approx). Crypto; long off trendline support."}
+  ],
+  "distinct_summary": {
+    "pairs_seen": ["AUDNZD","NZDCAD","NZDUSD","GBPUSD","GBPAUD","CADCHF","USOIL","BNBUSDT"],
+    "timeframes_seen": ["15m","30m","1h","2h"],
+    "directions": {"long": 7, "short": 5},
+    "patterns": ["double_top","double_bottom","resistance_retest","support_bounce","trendline","trend_pullback"],
+    "outcomes": "all WIN (winners-only highlight reel — see survivorship note)",
+    "asset_classes": ["FX majors","FX crosses (NZD/AUD/GBP heavy)","commodities (WTI)","crypto (BNB)"]
+  }
+}

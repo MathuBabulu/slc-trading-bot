@@ -1,0 +1,41 @@
+# ── Python ───────────────────────────────────────────────
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# ── OS / editor ──────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+
+# ── Runtime state (logs, ledgers, journals — not source) ──
+trading-bot/state/*.log
+trading-bot/state/*.jsonl
+trading-bot/state/news_alerts_sent.json
+trading-bot/state/paper_ledger.json
+trading-bot/state/paper_ledger.json.*
+trading-bot/state/trade_journal/
+trading-bot/state/backups/
+trading-bot/state/shadow_pending.json
+trading-bot/state/*.bak_*
+trading-bot/backups/
+trading-bot/HALT
+trading-bot/state/HALT
+
+# ── Secrets ──────────────────────────────────────────────
+# These hold LIVE credentials. They are INCLUDED in this package on purpose.
+# Uncomment the two lines below before pushing to a PUBLIC remote to stop
+# tracking them (keep config.example.yaml as the committed template).
+trading-bot/config.yaml
+WEBHOOK_AND_SECRETS.md
+.env
+*.env
+
+# ── Hardening (added for GitHub) ─────────────────────────
+*.log
+secrets.*
+*secret*.yaml
+*secret*.yml

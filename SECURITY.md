@@ -7,11 +7,11 @@ team gets a working snapshot. That means real secrets are inside it.
 
 | Secret | Location |
 |---|---|
-| Telegram bot token `<redacted>…` | `trading-bot/data/trading.db` (settings table) |
-| Telegram chat ID `<redacted>` | `trading-bot/data/trading.db` |
-| Discord webhook URL `https://discord.com/api/webhooks/<redacted>…` | `trading-bot/data/trading.db` |
+| Telegram bot token `<redacted-telegram-token>` | `trading-bot/data/trading.db` (settings table) |
+| Telegram chat ID `<redacted-chat-id>` | `trading-bot/data/trading.db` |
+| Discord webhook URL `<redacted-discord-webhook>` | `trading-bot/data/trading.db` |
 | MT5 account login number + balances | flows through `trading-bot/state/*.log` (not the token, but privacy-relevant) |
-| LAN IP addresses (`192.168.68.x`) | `trading-bot/state/server.launchd.log` |
+| LAN IP addresses (`<redacted-LAN-IP>`) | `trading-bot/state/server.launchd.log` |
 
 `trading-bot/config.yaml` itself is clean (credentials are empty strings) — the live values are only
 in the database and logs.

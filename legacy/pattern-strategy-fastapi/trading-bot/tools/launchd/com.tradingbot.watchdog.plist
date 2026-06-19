@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradingbot.watchdog</string>
+
+  <!-- Every 2 minutes: reopen MetaTrader 5 if it's not running, and verify
+       the server actually answers HTTP (belt and braces on top of KeepAlive). -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>"__BOT_DIR__/tools/watchdog.sh"</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>120</integer>
+
+  <key>StandardOutPath</key>
+  <string>__BOT_DIR__/state/watchdog.log</string>
+  <key>StandardErrorPath</key>
+  <string>__BOT_DIR__/state/watchdog.log</string>
+</dict>
+</plist>
