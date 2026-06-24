@@ -224,6 +224,7 @@ tbody tr:hover{background:rgba(90,167,255,.06)}
       <div class="row" style="margin-top:12px">
         <label class="toggle" id="mIntraday" onclick="toggleModeSpeed('intraday')"><div class="sw"></div>Intraday</label>
         <label class="toggle" id="mSwing" onclick="toggleModeSpeed('swing')"><div class="sw"></div>Swing</label>
+        <label class="toggle" id="stratSlc" onclick="el('stratSlc').classList.toggle('on')"><div class="sw"></div>SLC strategy</label>
         <button class="primary" onclick="saveSettings()">Save settings</button>
       </div>
       <div class="note">Risk %, stops and mode are yours alone — the agent can never change them.</div>
@@ -244,6 +245,16 @@ tbody tr:hover{background:rgba(90,167,255,.06)}
         <button onclick="testTelegram()">Send test message</button>
         <span id="tgMsg" class="note" style="margin-top:0"></span>
       </div>
+    </div>
+    <div class="panel" id="sec_webhook">
+      <h2>TradingView webhook</h2>
+      <div class="row" style="gap:14px">
+        <label class="field">Webhook token<input id="tvToken" style="width:240px" placeholder="long random string"></label>
+        <label class="toggle" id="tvT" onclick="el('tvT').classList.toggle('on')"><div class="sw"></div>Enabled</label>
+        <button class="primary" onclick="saveWebhook()">Save</button>
+        <span id="tvMsg" class="note" style="margin-top:0"></span>
+      </div>
+      <div class="note">POST alerts to <code>/api/tv_webhook</code>. Off unless enabled AND a token is set; the token must match the alert's <code>token</code> field. Alerts are <b>candidates</b> — they pass the same rails as an SLC signal (mode, stop side, spread, RR, concurrency, loss limits, sizing), never raw orders. Needs a paid TradingView plan + a public HTTPS endpoint (VPS or tunnel) — TradingView can't reach localhost.</div>
     </div>
   </div>
 
@@ -551,20 +562,29 @@ function renderSettings(){
     <option ${S.settings.min_grade==='A'?'selected':''}>A</option></select></label>`;
   el('mIntraday').classList.toggle('on',(S.settings.modes||[]).includes('intraday'));
   el('mSwing').classList.toggle('on',(S.settings.modes||[]).includes('swing'));
+  el('stratSlc').classList.toggle('on', S.settings.strategy_slc_enabled!==false);
   el('tgToken').value = S.settings.telegram_bot_token||'';
   el('tgChat').value = S.settings.telegram_chat_id||'';
   el('tgT').classList.toggle('on', !!S.settings.telegram_enabled);
   el('dcUrl').value = S.settings.discord_webhook_url||'';
   el('dcT').classList.toggle('on', !!S.settings.discord_enabled);
+  el('tvToken').value = S.settings.tradingview_webhook_token||'';
+  el('tvT').classList.toggle('on', !!S.settings.tradingview_webhook_enabled);
   settingsRendered=true;
 }
 function toggleModeSpeed(m){ el(m==='intraday'?'mIntraday':'mSwing').classList.toggle('on'); }
 async function saveSettings(){
-  const body={min_grade:el('set_min_grade').value, modes:[]};
+  const body={min_grade:el('set_min_grade').value, modes:[],
+    strategy_slc_enabled:el('stratSlc').classList.contains('on')};
   FIELDS.forEach(f=>{ body[f[0]] = parseFloat(el('set_'+f[0]).value); });
   if(el('mIntraday').classList.contains('on')) body.modes.push('intraday');
   if(el('mSwing').classList.contains('on')) body.modes.push('swing');
   await post('/api/settings',body); settingsRendered=false; poll();
+}
+async function saveWebhook(){
+  await post('/api/settings',{tradingview_webhook_token:el('tvToken').value.trim(),
+    tradingview_webhook_enabled:el('tvT').classList.contains('on')});
+  el('tvMsg').textContent='Saved.';
 }
 async function saveTelegram(){
   await post('/api/settings',{telegram_bot_token:el('tgToken').value.trim(),

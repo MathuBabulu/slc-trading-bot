@@ -19,6 +19,7 @@ import agent
 import engine
 import notifier
 import storage
+import tv_webhook
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=None)
@@ -52,6 +53,12 @@ def seed_settings():
         "discord_webhook_url": "",
         "agent_disabled_pairs": [],
         "agent_disabled_modes": [],
+        # strategy-plugin flags (strategy_<name>_enabled); SLC default-on
+        "strategy_slc_enabled": True,
+        # TradingView / external webhook — OFF until enabled AND a token is set
+        "tradingview_webhook_enabled": False,
+        "tradingview_webhook_token": "",
+        "tradingview_symbol_map": {},
     }
     for k, v in CFG["risk"].items():
         defaults[k] = v
@@ -297,6 +304,9 @@ def update_settings():
         "telegram_bot_token", "telegram_chat_id", "notify_signals", "notify_agent",
         "discord_enabled", "discord_webhook_url",
         "paper_balance", "agent_disabled_pairs", "agent_disabled_modes",
+        "strategy_slc_enabled",
+        "tradingview_webhook_enabled", "tradingview_webhook_token",
+        "tradingview_symbol_map",
     }
     changed = {}
     for k, v in body.items():
@@ -309,6 +319,32 @@ def update_settings():
         notifier.send("🔁 Trading mode switched to <b>%s</b>"
                       % str(changed["trading_mode"]).upper())
     return jsonify({"ok": True, "changed": changed})
+
+
+@app.route("/api/tv_webhook", methods=["POST"])
+def tv_webhook_receive():
+    """TradingView (or any external) alert receiver.
+
+    OFF unless `tradingview_webhook_enabled` AND a `tradingview_webhook_token`
+    are set. A valid, authenticated alert is a CANDIDATE routed through
+    `engine.ingest_external_signal` -> the SAME rails as an SLC signal. It is
+    never a raw market order and never flips `trading_mode` (invariant #6)."""
+    if not storage.get_setting("tradingview_webhook_enabled", False):
+        return jsonify({"ok": False, "error": "webhook disabled"}), 403
+    expected = storage.get_setting("tradingview_webhook_token", "")
+    parsed = tv_webhook.parse_payload(request.get_data())
+    if not parsed["ok"]:
+        return jsonify({"ok": False, "error": parsed["error"]}), 400
+    fields = parsed["fields"]
+    if not tv_webhook.check_token(fields.get("token"), expected):
+        return jsonify({"ok": False, "error": "bad token"}), 401
+    overrides = storage.get_setting("tradingview_symbol_map", {}) or {}
+    symbol = tv_webhook.map_symbol(fields.get("ticker"), overrides)
+    if not symbol:
+        return jsonify({"ok": False,
+                        "error": "unknown ticker %r" % fields.get("ticker")}), 422
+    result = engine.ingest_external_signal(symbol, fields, engine.params())
+    return jsonify({"ok": True, "result": result}), 200
 
 
 @app.route("/api/trade/close/<int:trade_id>", methods=["POST"])

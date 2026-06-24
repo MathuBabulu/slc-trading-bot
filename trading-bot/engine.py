@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 
 import storage
 import strategy
+import strategies
 from strategy import MODE_TFS
 try:
     import tv_context as _tv
@@ -131,7 +132,7 @@ def get_last_info() -> List[Dict]:
 # ----------------------------------------------------------- params
 def params() -> Dict[str, Any]:
     s = storage.all_settings()
-    return {
+    out = {
         "trading_mode": s.get("trading_mode", "paper"),
         "modes": s.get("modes", ["intraday", "swing"]),
         "risk_pct": float(s.get("risk_pct", 1.0)),
@@ -153,6 +154,13 @@ def params() -> Dict[str, Any]:
         "agent_disabled_modes": s.get("agent_disabled_modes", []),
         "paper_balance": float(s.get("paper_balance", 10000.0)),
     }
+    # strategy enable flags (strategy_<name>_enabled) flow through to the plugin
+    # registry; default-on, so SLC stays on exactly as before and a new strategy
+    # is picked up here automatically once its setting is seeded.
+    for k, v in s.items():
+        if k.startswith("strategy_") and k.endswith("_enabled"):
+            out[k] = bool(v)
+    return out
 
 
 # ------------------------------------------------------------ sizing
@@ -398,6 +406,86 @@ def try_execute(sig: Dict, p: Dict) -> None:
         % (mode.upper(), sig["side"].upper(), symbol, sig["trade_mode"], sig["grade"],
            entry, sig["sl"], sig["tp1"], sig["tp"], lots, risk_pct, risk_amount, sig["rr"],
            tv_line))
+
+
+# ----------------------------------------- external signals (TradingView etc.)
+def ingest_external_signal(symbol: str, fields: Dict[str, Any],
+                           p: Dict[str, Any]) -> Dict[str, Any]:
+    """Route a parsed external alert (e.g. a TradingView webhook) as a
+    CANDIDATE through the SAME rails as an SLC signal — never a raw market
+    order, never flips trading_mode. Builds an SLC-shaped sig (valid stop on the
+    correct side, RR computed if absent) and hands it to `try_execute`, which
+    applies the mode / stop / spread / drift / RR / concurrency / correlation /
+    balance / loss-limit / sizing rails. Returns a status dict for the HTTP
+    response. (Invariants checked: #6 candidates-not-orders, #3 stop side, #5
+    risk cap via B sizing + the shared rails.)"""
+    side = fields.get("side")
+    if side not in ("buy", "sell"):
+        return {"accepted": False, "reason": "missing/invalid side"}
+    trade_mode = fields.get("trade_mode")
+    if trade_mode not in MODE_TFS:
+        trade_mode = "swing"
+
+    price_info = feed_state["prices"].get(symbol)
+    live = None
+    if price_info:
+        live = price_info["ask"] if side == "buy" else price_info["bid"]
+
+    entry = fields.get("entry")
+    if entry is None:
+        entry = live
+    if entry is None:
+        return {"accepted": False,
+                "reason": "no entry in alert and no live price for %s" % symbol}
+    entry = float(entry)
+
+    sl = fields.get("sl")
+    if sl is None:
+        return {"accepted": False, "reason": "external signal must carry a stop"}
+    sl = float(sl)
+    # stop MUST be on the correct side of entry (never invent or flip it)
+    if side == "buy" and not sl < entry:
+        return {"accepted": False,
+                "reason": "long stop %.6f not below entry %.6f" % (sl, entry)}
+    if side == "sell" and not sl > entry:
+        return {"accepted": False,
+                "reason": "short stop %.6f not above entry %.6f" % (sl, entry)}
+
+    risk = abs(entry - sl)
+    if risk <= 0:
+        return {"accepted": False, "reason": "degenerate risk distance"}
+
+    tp = fields.get("tp")
+    if tp is None:
+        tp = entry + p["min_rr"] * risk if side == "buy" else entry - p["min_rr"] * risk
+    tp = float(tp)
+    if side == "buy" and not tp > entry:
+        return {"accepted": False, "reason": "long target not above entry"}
+    if side == "sell" and not tp < entry:
+        return {"accepted": False, "reason": "short target not below entry"}
+
+    tp1 = fields.get("tp1")
+    tp1 = float(tp1) if tp1 is not None else (entry + risk if side == "buy" else entry - risk)
+    rr = abs(tp - entry) / risk
+
+    direction = "long" if side == "buy" else "short"
+    src = str(fields.get("strategy") or "tradingview")
+    sig = {
+        "symbol": symbol, "trade_mode": trade_mode, "side": side,
+        # external alerts size as a B setup (b_setup_risk_factor, conservative);
+        # they are vetted by the provider plus the bot's hard rails, not the SLC
+        # quality checklist.
+        "grade": "B",
+        "entry": entry, "sl": sl, "tp1": tp1, "tp": tp,
+        "rr": round(rr, 2), "atr": 0.0, "regime": 1.0, "spread": 0.0,
+        "setup": {"source": "external", "provider": src, "trend": None,
+                  "poi": None, "sweep": None, "confirmation": None},
+        "key": "%s|%s|%s|%s|%.6f" % (src, symbol, trade_mode, direction, sl),
+    }
+    try_execute(sig, p)
+    return {"accepted": True, "symbol": symbol, "side": side,
+            "trade_mode": trade_mode, "rr": round(rr, 2),
+            "mode": p["trading_mode"]}
 
 
 # --------------------------------------------------- shadow tracking
@@ -694,19 +782,22 @@ def engine_loop(poll_seconds: int = 20) -> None:
                             "note": "bar data stale (last %s bar %dm old) — standing aside"
                                     % (mtf_tf, (broker_now - mtf_bars[-1]["t"]) // 60)}
                         continue
-                    res = strategy.analyze(symbol, m, bars_by_tf, p,
-                                           spread=spread, live_price=live_mid)
-                    res["info"]["watch"] = symbol in shadow_only
-                    _last_info["%s|%s" % (symbol, m)] = res["info"]
-                    if res["signal"]:
-                        if symbol in shadow_only:
-                            # shadow trades that mirror an already-open shadow
-                            # position on the same symbol are skipped
-                            if not any(t["symbol"] == symbol
-                                       for t in storage.open_trades("shadow")):
-                                try_execute_shadow(res["signal"], p)
-                        else:
-                            try_execute(res["signal"], p)
+                    for sname, res in strategies.generate_all(
+                            symbol, m, bars_by_tf, p,
+                            spread=spread, live_price=live_mid):
+                        res["info"]["watch"] = symbol in shadow_only
+                        # one info row per symbol|mode|strategy (SLC-only keeps a
+                        # single row per symbol|mode, now tagged with strategy)
+                        _last_info["%s|%s|%s" % (symbol, m, sname)] = res["info"]
+                        if res["signal"]:
+                            if symbol in shadow_only:
+                                # shadow trades that mirror an already-open shadow
+                                # position on the same symbol are skipped
+                                if not any(t["symbol"] == symbol
+                                           for t in storage.open_trades("shadow")):
+                                    try_execute_shadow(res["signal"], p)
+                            else:
+                                try_execute(res["signal"], p)
         except Exception as e:
             import traceback
             traceback.print_exc()

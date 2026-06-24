@@ -1,0 +1,710 @@
+diff --git a/trading-bot/dashboard/index.html b/trading-bot/dashboard/index.html
+index 3851fa8..2ea6f9b 100644
+--- a/trading-bot/dashboard/index.html
++++ b/trading-bot/dashboard/index.html
+@@ -224,6 +224,7 @@ tbody tr:hover{background:rgba(90,167,255,.06)}
+       <div class="row" style="margin-top:12px">
+         <label class="toggle" id="mIntraday" onclick="toggleModeSpeed('intraday')"><div class="sw"></div>Intraday</label>
+         <label class="toggle" id="mSwing" onclick="toggleModeSpeed('swing')"><div class="sw"></div>Swing</label>
++        <label class="toggle" id="stratSlc" onclick="el('stratSlc').classList.toggle('on')"><div class="sw"></div>SLC strategy</label>
+         <button class="primary" onclick="saveSettings()">Save settings</button>
+       </div>
+       <div class="note">Risk %, stops and mode are yours alone — the agent can never change them.</div>
+@@ -245,6 +246,16 @@ tbody tr:hover{background:rgba(90,167,255,.06)}
+         <span id="tgMsg" class="note" style="margin-top:0"></span>
+       </div>
+     </div>
++    <div class="panel" id="sec_webhook">
++      <h2>TradingView webhook</h2>
++      <div class="row" style="gap:14px">
++        <label class="field">Webhook token<input id="tvToken" style="width:240px" placeholder="long random string"></label>
++        <label class="toggle" id="tvT" onclick="el('tvT').classList.toggle('on')"><div class="sw"></div>Enabled</label>
++        <button class="primary" onclick="saveWebhook()">Save</button>
++        <span id="tvMsg" class="note" style="margin-top:0"></span>
++      </div>
++      <div class="note">POST alerts to <code>/api/tv_webhook</code>. Off unless enabled AND a token is set; the token must match the alert's <code>token</code> field. Alerts are <b>candidates</b> — they pass the same rails as an SLC signal (mode, stop side, spread, RR, concurrency, loss limits, sizing), never raw orders. Needs a paid TradingView plan + a public HTTPS endpoint (VPS or tunnel) — TradingView can't reach localhost.</div>
++    </div>
+   </div>
+ 
+   <div class="panel" id="sec_agentlog">
+@@ -551,21 +562,30 @@ function renderSettings(){
+     <option ${S.settings.min_grade==='A'?'selected':''}>A</option></select></label>`;
+   el('mIntraday').classList.toggle('on',(S.settings.modes||[]).includes('intraday'));
+   el('mSwing').classList.toggle('on',(S.settings.modes||[]).includes('swing'));
++  el('stratSlc').classList.toggle('on', S.settings.strategy_slc_enabled!==false);
+   el('tgToken').value = S.settings.telegram_bot_token||'';
+   el('tgChat').value = S.settings.telegram_chat_id||'';
+   el('tgT').classList.toggle('on', !!S.settings.telegram_enabled);
+   el('dcUrl').value = S.settings.discord_webhook_url||'';
+   el('dcT').classList.toggle('on', !!S.settings.discord_enabled);
++  el('tvToken').value = S.settings.tradingview_webhook_token||'';
++  el('tvT').classList.toggle('on', !!S.settings.tradingview_webhook_enabled);
+   settingsRendered=true;
+ }
+ function toggleModeSpeed(m){ el(m==='intraday'?'mIntraday':'mSwing').classList.toggle('on'); }
+ async function saveSettings(){
+-  const body={min_grade:el('set_min_grade').value, modes:[]};
++  const body={min_grade:el('set_min_grade').value, modes:[],
++    strategy_slc_enabled:el('stratSlc').classList.contains('on')};
+   FIELDS.forEach(f=>{ body[f[0]] = parseFloat(el('set_'+f[0]).value); });
+   if(el('mIntraday').classList.contains('on')) body.modes.push('intraday');
+   if(el('mSwing').classList.contains('on')) body.modes.push('swing');
+   await post('/api/settings',body); settingsRendered=false; poll();
+ }
++async function saveWebhook(){
++  await post('/api/settings',{tradingview_webhook_token:el('tvToken').value.trim(),
++    tradingview_webhook_enabled:el('tvT').classList.contains('on')});
++  el('tvMsg').textContent='Saved.';
++}
+ async function saveTelegram(){
+   await post('/api/settings',{telegram_bot_token:el('tgToken').value.trim(),
+     telegram_chat_id:el('tgChat').value.trim(),
+diff --git a/trading-bot/engine.py b/trading-bot/engine.py
+index afce4f4..dfa2184 100644
+--- a/trading-bot/engine.py
++++ b/trading-bot/engine.py
+@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
+ 
+ import storage
+ import strategy
++import strategies
+ from strategy import MODE_TFS
+ try:
+     import tv_context as _tv
+@@ -131,7 +132,7 @@ def get_last_info() -> List[Dict]:
+ # ----------------------------------------------------------- params
+ def params() -> Dict[str, Any]:
+     s = storage.all_settings()
+-    return {
++    out = {
+         "trading_mode": s.get("trading_mode", "paper"),
+         "modes": s.get("modes", ["intraday", "swing"]),
+         "risk_pct": float(s.get("risk_pct", 1.0)),
+@@ -153,6 +154,13 @@ def params() -> Dict[str, Any]:
+         "agent_disabled_modes": s.get("agent_disabled_modes", []),
+         "paper_balance": float(s.get("paper_balance", 10000.0)),
+     }
++    # strategy enable flags (strategy_<name>_enabled) flow through to the plugin
++    # registry; default-on, so SLC stays on exactly as before and a new strategy
++    # is picked up here automatically once its setting is seeded.
++    for k, v in s.items():
++        if k.startswith("strategy_") and k.endswith("_enabled"):
++            out[k] = bool(v)
++    return out
+ 
+ 
+ # ------------------------------------------------------------ sizing
+@@ -400,6 +408,86 @@ def try_execute(sig: Dict, p: Dict) -> None:
+            tv_line))
+ 
+ 
++# ----------------------------------------- external signals (TradingView etc.)
++def ingest_external_signal(symbol: str, fields: Dict[str, Any],
++                           p: Dict[str, Any]) -> Dict[str, Any]:
++    """Route a parsed external alert (e.g. a TradingView webhook) as a
++    CANDIDATE through the SAME rails as an SLC signal — never a raw market
++    order, never flips trading_mode. Builds an SLC-shaped sig (valid stop on the
++    correct side, RR computed if absent) and hands it to `try_execute`, which
++    applies the mode / stop / spread / drift / RR / concurrency / correlation /
++    balance / loss-limit / sizing rails. Returns a status dict for the HTTP
++    response. (Invariants checked: #6 candidates-not-orders, #3 stop side, #5
++    risk cap via B sizing + the shared rails.)"""
++    side = fields.get("side")
++    if side not in ("buy", "sell"):
++        return {"accepted": False, "reason": "missing/invalid side"}
++    trade_mode = fields.get("trade_mode")
++    if trade_mode not in MODE_TFS:
++        trade_mode = "swing"
++
++    price_info = feed_state["prices"].get(symbol)
++    live = None
++    if price_info:
++        live = price_info["ask"] if side == "buy" else price_info["bid"]
++
++    entry = fields.get("entry")
++    if entry is None:
++        entry = live
++    if entry is None:
++        return {"accepted": False,
++                "reason": "no entry in alert and no live price for %s" % symbol}
++    entry = float(entry)
++
++    sl = fields.get("sl")
++    if sl is None:
++        return {"accepted": False, "reason": "external signal must carry a stop"}
++    sl = float(sl)
++    # stop MUST be on the correct side of entry (never invent or flip it)
++    if side == "buy" and not sl < entry:
++        return {"accepted": False,
++                "reason": "long stop %.6f not below entry %.6f" % (sl, entry)}
++    if side == "sell" and not sl > entry:
++        return {"accepted": False,
++                "reason": "short stop %.6f not above entry %.6f" % (sl, entry)}
++
++    risk = abs(entry - sl)
++    if risk <= 0:
++        return {"accepted": False, "reason": "degenerate risk distance"}
++
++    tp = fields.get("tp")
++    if tp is None:
++        tp = entry + p["min_rr"] * risk if side == "buy" else entry - p["min_rr"] * risk
++    tp = float(tp)
++    if side == "buy" and not tp > entry:
++        return {"accepted": False, "reason": "long target not above entry"}
++    if side == "sell" and not tp < entry:
++        return {"accepted": False, "reason": "short target not below entry"}
++
++    tp1 = fields.get("tp1")
++    tp1 = float(tp1) if tp1 is not None else (entry + risk if side == "buy" else entry - risk)
++    rr = abs(tp - entry) / risk
++
++    direction = "long" if side == "buy" else "short"
++    src = str(fields.get("strategy") or "tradingview")
++    sig = {
++        "symbol": symbol, "trade_mode": trade_mode, "side": side,
++        # external alerts size as a B setup (b_setup_risk_factor, conservative);
++        # they are vetted by the provider plus the bot's hard rails, not the SLC
++        # quality checklist.
++        "grade": "B",
++        "entry": entry, "sl": sl, "tp1": tp1, "tp": tp,
++        "rr": round(rr, 2), "atr": 0.0, "regime": 1.0, "spread": 0.0,
++        "setup": {"source": "external", "provider": src, "trend": None,
++                  "poi": None, "sweep": None, "confirmation": None},
++        "key": "%s|%s|%s|%s|%.6f" % (src, symbol, trade_mode, direction, sl),
++    }
++    try_execute(sig, p)
++    return {"accepted": True, "symbol": symbol, "side": side,
++            "trade_mode": trade_mode, "rr": round(rr, 2),
++            "mode": p["trading_mode"]}
++
++
+ # --------------------------------------------------- shadow tracking
+ def try_execute_shadow(sig: Dict, p: Dict) -> None:
+     """Record a signal on a watch-only pair as a SHADOW trade: same entry
+@@ -694,19 +782,22 @@ def engine_loop(poll_seconds: int = 20) -> None:
+                             "note": "bar data stale (last %s bar %dm old) — standing aside"
+                                     % (mtf_tf, (broker_now - mtf_bars[-1]["t"]) // 60)}
+                         continue
+-                    res = strategy.analyze(symbol, m, bars_by_tf, p,
+-                                           spread=spread, live_price=live_mid)
+-                    res["info"]["watch"] = symbol in shadow_only
+-                    _last_info["%s|%s" % (symbol, m)] = res["info"]
+-                    if res["signal"]:
+-                        if symbol in shadow_only:
+-                            # shadow trades that mirror an already-open shadow
+-                            # position on the same symbol are skipped
+-                            if not any(t["symbol"] == symbol
+-                                       for t in storage.open_trades("shadow")):
+-                                try_execute_shadow(res["signal"], p)
+-                        else:
+-                            try_execute(res["signal"], p)
++                    for sname, res in strategies.generate_all(
++                            symbol, m, bars_by_tf, p,
++                            spread=spread, live_price=live_mid):
++                        res["info"]["watch"] = symbol in shadow_only
++                        # one info row per symbol|mode|strategy (SLC-only keeps a
++                        # single row per symbol|mode, now tagged with strategy)
++                        _last_info["%s|%s|%s" % (symbol, m, sname)] = res["info"]
++                        if res["signal"]:
++                            if symbol in shadow_only:
++                                # shadow trades that mirror an already-open shadow
++                                # position on the same symbol are skipped
++                                if not any(t["symbol"] == symbol
++                                           for t in storage.open_trades("shadow")):
++                                    try_execute_shadow(res["signal"], p)
++                            else:
++                                try_execute(res["signal"], p)
+         except Exception as e:
+             import traceback
+             traceback.print_exc()
+diff --git a/trading-bot/server.py b/trading-bot/server.py
+index 3235717..248f5f1 100644
+--- a/trading-bot/server.py
++++ b/trading-bot/server.py
+@@ -19,6 +19,7 @@ import agent
+ import engine
+ import notifier
+ import storage
++import tv_webhook
+ 
+ BASE = os.path.dirname(os.path.abspath(__file__))
+ app = Flask(__name__, static_folder=None)
+@@ -52,6 +53,12 @@ def seed_settings():
+         "discord_webhook_url": "",
+         "agent_disabled_pairs": [],
+         "agent_disabled_modes": [],
++        # strategy-plugin flags (strategy_<name>_enabled); SLC default-on
++        "strategy_slc_enabled": True,
++        # TradingView / external webhook — OFF until enabled AND a token is set
++        "tradingview_webhook_enabled": False,
++        "tradingview_webhook_token": "",
++        "tradingview_symbol_map": {},
+     }
+     for k, v in CFG["risk"].items():
+         defaults[k] = v
+@@ -297,6 +304,9 @@ def update_settings():
+         "telegram_bot_token", "telegram_chat_id", "notify_signals", "notify_agent",
+         "discord_enabled", "discord_webhook_url",
+         "paper_balance", "agent_disabled_pairs", "agent_disabled_modes",
++        "strategy_slc_enabled",
++        "tradingview_webhook_enabled", "tradingview_webhook_token",
++        "tradingview_symbol_map",
+     }
+     changed = {}
+     for k, v in body.items():
+@@ -311,6 +321,32 @@ def update_settings():
+     return jsonify({"ok": True, "changed": changed})
+ 
+ 
++@app.route("/api/tv_webhook", methods=["POST"])
++def tv_webhook_receive():
++    """TradingView (or any external) alert receiver.
++
++    OFF unless `tradingview_webhook_enabled` AND a `tradingview_webhook_token`
++    are set. A valid, authenticated alert is a CANDIDATE routed through
++    `engine.ingest_external_signal` -> the SAME rails as an SLC signal. It is
++    never a raw market order and never flips `trading_mode` (invariant #6)."""
++    if not storage.get_setting("tradingview_webhook_enabled", False):
++        return jsonify({"ok": False, "error": "webhook disabled"}), 403
++    expected = storage.get_setting("tradingview_webhook_token", "")
++    parsed = tv_webhook.parse_payload(request.get_data())
++    if not parsed["ok"]:
++        return jsonify({"ok": False, "error": parsed["error"]}), 400
++    fields = parsed["fields"]
++    if not tv_webhook.check_token(fields.get("token"), expected):
++        return jsonify({"ok": False, "error": "bad token"}), 401
++    overrides = storage.get_setting("tradingview_symbol_map", {}) or {}
++    symbol = tv_webhook.map_symbol(fields.get("ticker"), overrides)
++    if not symbol:
++        return jsonify({"ok": False,
++                        "error": "unknown ticker %r" % fields.get("ticker")}), 422
++    result = engine.ingest_external_signal(symbol, fields, engine.params())
++    return jsonify({"ok": True, "result": result}), 200
++
++
+ @app.route("/api/trade/close/<int:trade_id>", methods=["POST"])
+ def close_trade(trade_id):
+     return jsonify({"ok": engine.manual_close(trade_id)})
+diff --git a/trading-bot/strategies/__init__.py b/trading-bot/strategies/__init__.py
+new file mode 100644
+index 0000000..dc910e8
+--- /dev/null
++++ b/trading-bot/strategies/__init__.py
+@@ -0,0 +1,72 @@
++"""Strategy-plugin registry.
++
++The engine is strategy-agnostic: `engine_loop` asks `active(params)` which
++strategies run, then `generate_all(...)` for each. EVERY returned signal goes
++through the SAME engine rails (`engine.try_execute`). Global rails live in the
++engine, never per strategy — a plugin cannot widen a stop, raise risk above the
++cap, or bypass concurrency / loss limits.
++
++SLC is plugin #1 and delegates to `strategy.analyze`; its output must be exactly
++what it was before this layer existed. New strategies must NOT change it.
++"""
++from typing import Any, Dict, List, Optional
++
++import strategy as _slc
++
++
++class Strategy:
++    """Base plugin. Subclass, set `name`, implement `generate`."""
++    name = "base"
++
++    def is_enabled(self, params: Dict[str, Any]) -> bool:
++        """Read the `strategy_<name>_enabled` setting (default-on)."""
++        return bool(params.get("strategy_%s_enabled" % self.name, True))
++
++    def modes(self, params: Dict[str, Any]) -> List[str]:
++        """Trade-speeds this strategy runs. Default: whatever the engine runs."""
++        return list(params.get("modes", []))
++
++    def generate(self, symbol: str, trade_mode: str,
++                 bars_by_tf: Dict[str, List[Dict]], params: Dict[str, Any],
++                 spread: float = 0.0,
++                 live_price: Optional[float] = None) -> Dict[str, Any]:
++        raise NotImplementedError
++
++
++class SLCStrategy(Strategy):
++    """Structure · Liquidity · Confirmation — delegates to strategy.analyze."""
++    name = "slc"
++
++    def generate(self, symbol, trade_mode, bars_by_tf, params,
++                 spread=0.0, live_price=None) -> Dict[str, Any]:
++        return _slc.analyze(symbol, trade_mode, bars_by_tf, params,
++                            spread=spread, live_price=live_price)
++
++
++# Append new plugins here. Each clears its OWN >=50-trade positive-expectancy
++# paper gate (paper/shadow first) before it trades live (see CLAUDE.md).
++REGISTRY: List[Strategy] = [SLCStrategy()]
++
++
++def active(params: Dict[str, Any]) -> List[Strategy]:
++    """Plugins enabled by their `strategy_<name>_enabled` flag."""
++    return [s for s in REGISTRY if s.is_enabled(params)]
++
++
++def generate_all(symbol: str, trade_mode: str,
++                 bars_by_tf: Dict[str, List[Dict]], params: Dict[str, Any],
++                 spread: float = 0.0, live_price: Optional[float] = None):
++    """Run every active strategy that trades this mode. Returns a list of
++    `(strategy_name, result)` where result is the `{signal, info}` shape
++    `analyze` returns; info is tagged with the strategy name for dashboard
++    transparency. With only SLC active this yields exactly one result whose
++    `result` is byte-for-byte what `strategy.analyze` returned (plus the tag)."""
++    out = []
++    for s in active(params):
++        if trade_mode not in s.modes(params):
++            continue
++        res = s.generate(symbol, trade_mode, bars_by_tf, params,
++                         spread=spread, live_price=live_price)
++        res.setdefault("info", {})["strategy"] = s.name
++        out.append((s.name, res))
++    return out
+diff --git a/trading-bot/tests/test_strategy_registry.py b/trading-bot/tests/test_strategy_registry.py
+new file mode 100644
+index 0000000..15216af
+--- /dev/null
++++ b/trading-bot/tests/test_strategy_registry.py
+@@ -0,0 +1,74 @@
++"""Strategy-plugin registry tests. No MT5 needed.
++
++    cd "$BOT_DIR" && python3 tests/test_strategy_registry.py
++"""
++import os
++import sys
++import tempfile
++
++sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
++
++# isolate any accidental DB writes BEFORE importing modules that touch storage
++import storage
++storage._DB_PATH = os.path.join(tempfile.mkdtemp(), "test.db")
++
++import strategy
++import strategies
++
++
++def _params(**over):
++    p = {"modes": ["intraday", "swing"], "min_rr": 2.5, "atr_buffer": 0.35,
++         "regime_max": 2.5, "regime_b_ban": 1.5, "min_grade": "B", "vol_mult": 0.0}
++    p.update(over)
++    return p
++
++
++def test_slc_registered():
++    names = [s.name for s in strategies.REGISTRY]
++    assert "slc" in names, names
++    assert any(isinstance(s, strategies.SLCStrategy) for s in strategies.REGISTRY)
++
++
++def test_enable_flag():
++    assert any(s.name == "slc" for s in strategies.active(_params()))                       # default-on
++    assert any(s.name == "slc" for s in strategies.active(_params(strategy_slc_enabled=True)))
++    assert not any(s.name == "slc" for s in strategies.active(_params(strategy_slc_enabled=False)))
++
++
++def test_generate_all_tags_and_runs():
++    # insufficient bars -> analyze returns signal None + a note; the registry
++    # must still return exactly one slc-tagged result
++    res = strategies.generate_all("EURUSD", "swing", {}, _params())
++    assert len(res) == 1
++    name, r = res[0]
++    assert name == "slc"
++    assert r["info"]["strategy"] == "slc"
++    assert r["signal"] is None
++    assert "note" in r["info"]
++
++
++def test_disabled_strategy_does_not_run():
++    assert strategies.generate_all("EURUSD", "swing", {}, _params(strategy_slc_enabled=False)) == []
++
++
++def test_mode_filtering():
++    # a plugin only runs the modes it declares; SLC declares params["modes"]
++    assert strategies.generate_all("EURUSD", "intraday", {}, _params(modes=["swing"])) == []
++
++
++def test_slc_output_unchanged():
++    # the plugin must delegate to strategy.analyze unchanged (only adds the tag)
++    p = _params()
++    direct = strategy.analyze("EURUSD", "swing", {}, p, spread=0.0, live_price=None)
++    via = strategies.generate_all("EURUSD", "swing", {}, p, spread=0.0, live_price=None)[0][1]
++    assert via["signal"] == direct["signal"]
++    info_wo_tag = {k: v for k, v in via["info"].items() if k != "strategy"}
++    assert info_wo_tag == direct["info"]
++
++
++if __name__ == "__main__":
++    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
++    for fn in fns:
++        fn()
++        print("ok  ", fn.__name__)
++    print("\n%d passed" % len(fns))
+diff --git a/trading-bot/tests/test_tv_webhook.py b/trading-bot/tests/test_tv_webhook.py
+new file mode 100644
+index 0000000..f7e60ce
+--- /dev/null
++++ b/trading-bot/tests/test_tv_webhook.py
+@@ -0,0 +1,149 @@
++"""TradingView webhook tests: pure parser/auth + routing through the engine
++rails + the gated Flask endpoint. No MT5 needed (flask required for the
++endpoint test).
++
++    cd "$BOT_DIR" && python3 tests/test_tv_webhook.py
++"""
++import json
++import os
++import sys
++import tempfile
++import time
++
++sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
++
++import storage
++storage._DB_PATH = os.path.join(tempfile.mkdtemp(), "test.db")
++
++import tv_webhook
++import engine
++
++
++# ---------------------------------------------------------- pure parser / auth
++def test_parse_buy_alert():
++    raw = json.dumps({"token": "x", "ticker": "OANDA:EURUSD", "action": "buy",
++                      "entry": 1.1000, "sl": 1.0950, "tp": 1.1150})
++    out = tv_webhook.parse_payload(raw)
++    assert out["ok"]
++    f = out["fields"]
++    assert f["side"] == "buy" and f["ticker"] == "OANDA:EURUSD"
++    assert f["entry"] == 1.10 and f["sl"] == 1.095 and f["tp"] == 1.115
++
++
++def test_parse_aliases_and_short():
++    out = tv_webhook.parse_payload({"passphrase": "p", "symbol": "XAUUSD",
++                                    "side": "short", "price": 2400, "stop": 2410})
++    f = out["fields"]
++    assert f["token"] == "p" and f["side"] == "sell"
++    assert f["entry"] == 2400 and f["sl"] == 2410
++
++
++def test_parse_bad_json():
++    out = tv_webhook.parse_payload("{not json")
++    assert not out["ok"] and "JSON" in out["error"]
++
++
++def test_map_symbol():
++    assert tv_webhook.map_symbol("OANDA:EURUSD") == "EURUSD"
++    assert tv_webhook.map_symbol("BINANCE:BTCUSDT") == "BTCUSD"
++    assert tv_webhook.map_symbol("BTCUSDT.P") == "BTCUSD"
++    assert tv_webhook.map_symbol("GOLD") == "XAUUSD"
++    assert tv_webhook.map_symbol("FX:UNKNOWNPAIR") is None
++    assert tv_webhook.map_symbol("") is None
++    assert tv_webhook.map_symbol("MYBROKER:WTF", {"WTF": "XTIUSD"}) == "XTIUSD"
++
++
++def test_check_token():
++    assert tv_webhook.check_token("abc", "abc") is True
++    assert tv_webhook.check_token("abc", "xyz") is False
++    assert tv_webhook.check_token("abc", "") is False     # unconfigured -> nothing authenticates
++    assert tv_webhook.check_token("", "abc") is False
++    assert tv_webhook.check_token(None, "abc") is False
++
++
++# --------------------------------------------------- routing through the rails
++def _fresh_db_and_feed():
++    storage._DB_PATH = os.path.join(tempfile.mkdtemp(), "test.db")
++    storage._conn = None
++    storage.init()
++    for k, v in {"trading_mode": "paper", "modes": ["swing"], "risk_pct": 1.0,
++                 "b_setup_risk_factor": 0.5, "min_rr": 2.5, "atr_buffer": 0.35,
++                 "vol_mult": 0.0, "max_concurrent": 5, "max_correlated": 5,
++                 "daily_stop_pct": 2.0, "weekly_stop_pct": 5.0, "min_grade": "B",
++                 "regime_max": 2.5, "regime_b_ban": 1.5, "max_spread_frac": 0.10,
++                 "enabled_pairs": ["EURUSD"], "watch_pairs": [],
++                 "agent_disabled_pairs": [], "agent_disabled_modes": [],
++                 "paper_balance": 10000.0}.items():
++        storage.set_setting(k, v)
++    # synthetic live feed: tight spread + tick sizing so calc_lots works
++    engine.feed_state["prices"] = {"EURUSD": {
++        "symbol": "EURUSD", "bid": 1.09998, "ask": 1.10002,
++        "tick_value": 1.0, "tick_size": 0.0001}}
++    engine.feed_state["account"] = {"balance": 10000.0, "equity": 10000.0}
++    engine.feed_state["last_feed_t"] = time.time()
++    engine._recent_keys.clear()
++
++
++def test_ingest_buy_opens_paper_trade():
++    _fresh_db_and_feed()
++    fields = {"side": "buy", "trade_mode": "swing", "entry": 1.10002,
++              "sl": 1.0950, "tp": 1.1150, "strategy": "tv-test"}
++    res = engine.ingest_external_signal("EURUSD", fields, engine.params())
++    assert res["accepted"], res
++    opens = storage.open_trades("paper")
++    assert len(opens) == 1, opens
++    assert opens[0]["symbol"] == "EURUSD" and opens[0]["side"] == "buy"
++    # paper mode -> NO live command queued (a webhook is never a raw order)
++    assert storage.next_command() is None
++
++
++def test_ingest_rejects_wrong_side_stop():
++    _fresh_db_and_feed()
++    # long with a stop ABOVE entry -> invalid, rejected, no trade
++    res = engine.ingest_external_signal(
++        "EURUSD", {"side": "buy", "entry": 1.10, "sl": 1.11, "tp": 1.12}, engine.params())
++    assert not res["accepted"] and "stop" in res["reason"]
++    assert storage.open_trades("paper") == []
++
++
++def test_ingest_requires_stop():
++    _fresh_db_and_feed()
++    res = engine.ingest_external_signal(
++        "EURUSD", {"side": "buy", "entry": 1.10}, engine.params())
++    assert not res["accepted"] and "stop" in res["reason"]
++
++
++# --------------------------------------------------------- gated Flask endpoint
++def test_endpoint_gated_and_authed():
++    _fresh_db_and_feed()
++    import server
++    server.app.config["TESTING"] = True
++    c = server.app.test_client()
++    body = {"token": "secret", "ticker": "OANDA:EURUSD", "action": "buy",
++            "entry": 1.10002, "sl": 1.0950, "tp": 1.1150}
++
++    # disabled -> 403
++    storage.set_setting("tradingview_webhook_enabled", False)
++    storage.set_setting("tradingview_webhook_token", "secret")
++    assert c.post("/api/tv_webhook", json=body).status_code == 403
++
++    # enabled, bad token -> 401
++    storage.set_setting("tradingview_webhook_enabled", True)
++    assert c.post("/api/tv_webhook", json={**body, "token": "wrong"}).status_code == 401
++
++    # enabled, good token -> 200 accepted, trade opened
++    r = c.post("/api/tv_webhook", json=body)
++    assert r.status_code == 200, r.get_data(as_text=True)
++    assert r.get_json()["result"]["accepted"]
++    assert len(storage.open_trades("paper")) == 1
++
++    # unknown ticker -> 422
++    assert c.post("/api/tv_webhook", json={**body, "ticker": "FX:NOPE"}).status_code == 422
++
++
++if __name__ == "__main__":
++    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
++    for fn in fns:
++        fn()
++        print("ok  ", fn.__name__)
++    print("\n%d passed" % len(fns))
+diff --git a/trading-bot/tv_webhook.py b/trading-bot/tv_webhook.py
+new file mode 100644
+index 0000000..1c98a83
+--- /dev/null
++++ b/trading-bot/tv_webhook.py
+@@ -0,0 +1,104 @@
++"""TradingView webhook: auth + ticker->symbol mapping + payload parsing.
++
++PURE (no engine / DB / account access) so it is unit-testable on its own.
++Routing and the safety rails live in `engine.ingest_external_signal` — a parsed
++alert is a CANDIDATE, never an order. The endpoint that calls this is OFF unless
++`tradingview_webhook_enabled` AND a `tradingview_webhook_token` are set; the
++token is checked with `hmac.compare_digest`.
++"""
++import hmac
++import json
++import re
++from typing import Any, Dict, Optional
++
++# TradingView tickers -> the broker symbols this bot trades. Extend as needed;
++# unknown tickers are skipped by the caller (we never guess a symbol). Operators
++# can add per-deployment entries via the `tradingview_symbol_map` setting.
++_TICKER_MAP = {
++    "EURUSD": "EURUSD", "GBPUSD": "GBPUSD", "USDJPY": "USDJPY",
++    "USDCHF": "USDCHF", "USDCAD": "USDCAD", "AUDUSD": "AUDUSD",
++    "NZDUSD": "NZDUSD", "EURGBP": "EURGBP", "EURJPY": "EURJPY",
++    "GBPJPY": "GBPJPY",
++    "XAUUSD": "XAUUSD", "GOLD": "XAUUSD", "XAGUSD": "XAGUSD",
++    "BTCUSD": "BTCUSD", "BTCUSDT": "BTCUSD",
++    "ETHUSD": "ETHUSD", "ETHUSDT": "ETHUSD",
++}
++
++_SUFFIX_RE = re.compile(r"(\.P|\.PERP|PERP)$")
++
++
++def map_symbol(ticker: Optional[str],
++               overrides: Optional[Dict[str, str]] = None) -> Optional[str]:
++    """Map a TradingView ticker ('OANDA:EURUSD', 'BINANCE:BTCUSDT', 'BTCUSDT.P')
++    to a broker symbol. Strips an exchange prefix and a trailing perp suffix.
++    Returns None for an unknown ticker — the caller skips it."""
++    if not ticker:
++        return None
++    t = str(ticker).upper().strip()
++    if ":" in t:
++        t = t.split(":", 1)[1]
++    t = _SUFFIX_RE.sub("", t)
++    table = dict(_TICKER_MAP)
++    if overrides:
++        table.update({str(k).upper(): v for k, v in overrides.items()})
++    return table.get(t)
++
++
++def check_token(provided: Optional[str], expected: Optional[str]) -> bool:
++    """Constant-time token check. Returns False unless BOTH sides are non-empty
++    and equal — i.e. an unconfigured webhook authenticates nothing."""
++    if not expected or not provided:
++        return False
++    return hmac.compare_digest(str(provided), str(expected))
++
++
++def parse_payload(raw: Any) -> Dict[str, Any]:
++    """Normalize a TradingView alert into a flat field dict. Accepts a JSON
++    string, bytes, or an already-parsed dict (TradingView alert bodies are
++    user-authored JSON). Reads a known set of fields, ignores the rest.
++
++    Returns {"ok": bool, "error": str|None, "fields": {...}} where fields has:
++    token, ticker, side ('buy'|'sell'|None), trade_mode, entry, sl, tp, tp1,
++    strategy.
++    """
++    if isinstance(raw, (bytes, bytearray)):
++        raw = raw.decode("utf-8", "replace")
++    if isinstance(raw, str):
++        raw = raw.strip()
++        try:
++            raw = json.loads(raw) if raw else {}
++        except Exception as e:
++            return {"ok": False, "error": "invalid JSON: %s" % e, "fields": {}}
++    if not isinstance(raw, dict):
++        return {"ok": False, "error": "payload is not a JSON object", "fields": {}}
++
++    f: Dict[str, Any] = {}
++    f["token"] = raw.get("token") or raw.get("passphrase")
++    f["ticker"] = raw.get("ticker") or raw.get("symbol")
++
++    action = str(raw.get("action") or raw.get("side") or "").strip().lower()
++    if action in ("buy", "long"):
++        f["side"] = "buy"
++    elif action in ("sell", "short"):
++        f["side"] = "sell"
++    else:
++        f["side"] = None
++
++    f["trade_mode"] = str(raw.get("trade_mode") or raw.get("mode") or "swing").lower()
++
++    def _num(*keys):
++        for k in keys:
++            v = raw.get(k)
++            if v is not None and v != "":
++                try:
++                    return float(v)
++                except (TypeError, ValueError):
++                    return None
++        return None
++
++    f["entry"] = _num("entry", "price", "close")
++    f["sl"] = _num("sl", "stop", "stoploss", "stop_loss")
++    f["tp"] = _num("tp", "tp2", "target", "takeprofit", "take_profit")
++    f["tp1"] = _num("tp1")
++    f["strategy"] = raw.get("strategy") or raw.get("strategy_name") or "tradingview"
++    return {"ok": True, "error": None, "fields": f}
