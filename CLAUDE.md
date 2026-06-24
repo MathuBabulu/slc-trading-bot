@@ -140,12 +140,11 @@ dataset, validation gallery, and context handoff), never deployed or merged.
 
 EA tick-accurate spread reporting (untested MQL5 draft), paper commission/swap modelling (not
 built), per-level `force` flag (deferred), TP2/runner trailing leaving gains on the table
-(swing winners avg +1.16R but capture only +0.16R), symbol culling deferred until ~15+ trades
-per pair, and launchd service-name / doc inconsistencies to reconcile. Also noted: the EA reports
-its version inconsistently (`#property` 2.30 but the startup `Print` says 2.20 and the JSON feed
-reports 2.00 — canonical is **2.30**); two autostart paths coexist (`watchdog-install.sh` →
-`com.slc.*`/8766 is current; `install_autostart.sh` + `watchdog.sh` → `com.tradingbot.*`/8765 are
-legacy); and `config.example.yaml` is currently an exact copy of `config.yaml`.
+(swing winners avg +1.16R but capture only +0.16R), and symbol culling deferred until ~15+ trades
+per pair. Recently resolved: the EA now reports **2.30** consistently (`#property`, startup `Print`,
+and JSON feed); the legacy port-8765 autostart scripts (`install_autostart.sh`, `watchdog.sh`) were
+removed from the root (`watchdog-install.sh` → `com.slc.*`/8766 is the only autostart path now); and
+`config.example.yaml` is now a documented template rather than an exact copy of `config.yaml`.
 
 ---
 *Educational trading software, not financial advice. See `LICENSE.md`.*

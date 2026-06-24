@@ -19,8 +19,7 @@
 //+------------------------------------------------------------------+
 #property copyright "SLC Data Bridge"
 #property version   "2.30"
-// NOTE: the canonical EA version is 2.30 (this #property). Some runtime strings still emit stale
-// values (startup Print "v2.20", JSON feed "version":"2.00") — a known cleanup item, not a re-version.
+// Version is 2.30 across the #property, the startup Print, and the JSON feed payload.
 
 #include <Trade\Trade.mqh>
 
@@ -126,7 +125,7 @@ int OnInit()
    ParseAliases();
    BuildBrokerSymbolIndex();
 
-   Print("SLCDataBridge v2.20: started.");
+   Print("SLCDataBridge v2.30: started.");
    Print("  Server : ", base);
    Print("  Push   : ", g_feedURL, "  every ", PushIntervalSec, "s");
    Print("  Bars   : ", g_barsURL, "  every ", BarPushIntervalSec, "s");
@@ -514,7 +513,7 @@ void PushBars()
    // MT5 server UTC offset so Python can normalise timestamps
    int tzOffsetSec = (int)(TimeCurrent() - TimeGMT());
 
-   // v2.31: ONE REQUEST PER SYMBOL. Building a single payload for many
+   // ONE REQUEST PER SYMBOL. Building a single payload for many
    // symbols (46 syms x 6 TFs x 300 bars ~ 6-7 MB through 80k+ string
    // concatenations) can exhaust EA memory and gets the EA removed from
    // the chart with a critical error. Per-symbol chunks stay ~150 KB.
@@ -1108,7 +1107,7 @@ string BuildPayload()
    //--- Metadata
    j += "\"terminal\":{";
    j += "\"platform\":\"MT5\",";
-   j += "\"version\":\"2.00\",";
+   j += "\"version\":\"2.30\",";
    j += "\"time_utc\":"   + IntegerToString((int)TimeGMT())     + ",";
    j += "\"time_local\":" + IntegerToString((int)TimeCurrent());
    j += "}";

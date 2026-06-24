@@ -95,6 +95,5 @@ WebRequest allow-list, firewall and EA inputs) is in [`SETUP-GUIDE.md`](SETUP-GU
 Live in paper mode. Validated forward: a relative-volume confirmation gate and a dynamic
 spread-based stop-loss. A strategy-plugin registry (`trading-bot/strategies/`) and an optional
 TradingView webhook (`/api/tv_webhook`, off by default) have landed (SLC = strategy #1). Open
-items (tick-accurate EA spread reporting, paper commission/swap modelling, TP2 trailing, and EA
-internal version-string cleanup) are tracked in
-[`DEVELOPMENT-HISTORY.md`](DEVELOPMENT-HISTORY.md#open-items--todos--drafts).
+items (tick-accurate EA spread reporting, paper commission/swap modelling, TP2 trailing) are
+tracked in [`DEVELOPMENT-HISTORY.md`](DEVELOPMENT-HISTORY.md#open-items--todos--drafts).

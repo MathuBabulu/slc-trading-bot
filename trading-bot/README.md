@@ -176,9 +176,10 @@ python3 tests/test_tv_webhook.py          # TradingView parser + gated endpoint
 | `pattern_sanity_check.py` | chart-pattern detector sanity sweep |
 | `watchdog-install.sh` | installs/keeps the launchd services alive (current; `com.slc.*`, 8766) |
 
-> **Legacy / superseded:** `install_autostart.sh` and `watchdog.sh` target the old `com.tradingbot.*`
-> services and **port 8765** — they predate the 8765→8766 migration and are kept only for reference.
-> Use `watchdog-install.sh` for the current system.
+> **Autostart:** use `watchdog-install.sh` (installs/keeps the `com.slc.*` launchd services on port
+> 8766). The old `install_autostart.sh` / `watchdog.sh` scripts (legacy `com.tradingbot.*` / port 8765)
+> have been removed from the repo root; the superseded `legacy/` build retains its own copies under
+> `legacy/pattern-strategy-fastapi/trading-bot/tools/`.
 
 ## Troubleshooting
 

@@ -291,21 +291,19 @@ Two scheduled jobs run on a daily cadence and were sampled as representatives:
 - **Inconsistencies — mostly reconciled (docs pass, 2026-06-24).** The user-facing docs were swept and
   aligned to `config.yaml` (port **8766**, EA `SLCDataBridge`, min RR **2.0**, 8 enabled pairs); the
   stale 8765 / `MT5DataBridge` references in `README.md`, `trading-bot/README.md` and `server.py` were
-  fixed, and the TradingView webhook + strategies registry were documented. Remaining **code-level**
-  cleanups (documented, not yet fixed):
-    - **EA version strings disagree** — `#property version` is `2.30` (canonical), but the startup
-      `Print` emits `v2.20`, the JSON feed reports `"version":"2.00"`, and a `PushBars` comment says
-      `v2.31`. Only `#property` is right; the emitted strings should be normalized to 2.30.
-    - **Two autostart paths** — `watchdog-install.sh` (root + `trading-bot/`, identical) installs
-      `com.slc.*` services on the correct port 8766 and is current; `install_autostart.sh` + `watchdog.sh`
-      install `com.tradingbot.*` and health-check **port 8765** — they are legacy and should be removed
-      or relocated.
-    - **Stale legacy script copies** — `reset_ledger.py`, `shadow_report.py`, `shadow_report_corrected.py`,
-      `spread_report.py`, `pattern_sanity_check.py` are copies of `legacy/.../tools/*` whose docstrings
-      still say `python3 tools/<name>` and resolve paths assuming a `tools/` subdir; harmless but
-      run-from-root path handling is off.
-    - **`config.example.yaml` == `config.yaml`** — the example is an exact copy rather than a templated
-      placeholder file.
+  fixed, and the TradingView webhook + strategies registry were documented. A follow-up code/config
+  pass (2026-06-24) then resolved:
+    - **EA version strings** — `SLCDataBridge.mq5` now reports **2.30** consistently: the startup `Print`
+      and the JSON feed `terminal.version` were updated from `v2.20` / `2.00` to `2.30`, matching the
+      `#property version`, and the lone `v2.31` `PushBars` comment was de-versioned.
+    - **Legacy autostart scripts removed** — `install_autostart.sh` and `watchdog.sh` (legacy
+      `com.tradingbot.*` / port 8765, byte-identical to the `legacy/.../tools/` copies) were deleted from
+      the repo root; `watchdog-install.sh` (`com.slc.*` / 8766) is the only autostart path now.
+    - **`config.example.yaml`** — now a documented template (copy-to-`config.yaml` header, secrets-blank
+      guidance) rather than an exact copy.
+  Still open (harmless): the other root analysis scripts (`reset_ledger.py`, `shadow_report.py`,
+  `shadow_report_corrected.py`, `spread_report.py`, `pattern_sanity_check.py`) are copies of
+  `legacy/.../tools/*` whose docstrings assume a `tools/` subdir, so run-from-root path handling is off.
   The account-size brief (₹10,000 INR) also differs from the ledger's 100,000 base. Treat the live
   `config.yaml` as authoritative.
 
