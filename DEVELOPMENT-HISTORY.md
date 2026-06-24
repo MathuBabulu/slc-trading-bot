@@ -206,8 +206,8 @@ over-credit a target.
 ### 12. DB corruption recovery incident (2026-06-16)
 The live `trading.db` became corrupted — *"rowid out of order"* in the `bars` table. `recover-db.sh`
 was written to handle it safely: stop the server gracefully (not `kill -9`), back up the corrupt DB
-(`trading.db.corrupt-…`, `trading.db.bad-…` are both present in the repo), rebuild via
-`sqlite3 .recover` into a fresh DB, integrity-check, and swap in. The database was subsequently put
+(`trading.db.corrupt-…`, `trading.db.bad-…` — created locally during recovery; gitignored, not in
+the repo), rebuild via `sqlite3 .recover` into a fresh DB, integrity-check, and swap in. The database was subsequently put
 into **WAL mode** for resilience. This incident also retroactively explained an earlier scare: a
 "negative swing" warning had been a **corrupt-data artifact**, not a real strategy problem — on the
 clean DB, swing is positive. The lesson recorded was *don't cull pairs on tiny samples or on numbers
@@ -288,14 +288,26 @@ Two scheduled jobs run on a daily cadence and were sampled as representatives:
   trailing gives back gains. Flagged as a tunable, not yet pursued.
 - **Symbol culling deferred** — per-symbol numbers are too thin (n≈1–5) to bench reliably; revisit once
   there are ~15+ closed trades per pair. (And never act on numbers from a corrupt DB.)
-- **Inconsistencies to reconcile before sharing** — service names appear under several launchd labels
-  across sessions (`com.slc.server` in `recover-db.sh`, also `com.tradingbot.server` and
-  `com.slc.newsagent`/`com.slc.server` elsewhere), and run instructions vary between "manual
-  `python3 server.py`" and a launchd watchdog (`watchdog-install.sh`); the README still references the
-  old `MT5DataBridge` EA and port 8765 while the live config uses `SLCDataBridge` and 8766. The
-  account-size brief (₹10,000 INR) also differs from the ledger's 100,000 base. A team reader should
-  treat the live `config.yaml` (port 8766, the values above) as authoritative and the README/setup
-  docs as partly stale.
+- **Inconsistencies — mostly reconciled (docs pass, 2026-06-24).** The user-facing docs were swept and
+  aligned to `config.yaml` (port **8766**, EA `SLCDataBridge`, min RR **2.0**, 8 enabled pairs); the
+  stale 8765 / `MT5DataBridge` references in `README.md`, `trading-bot/README.md` and `server.py` were
+  fixed, and the TradingView webhook + strategies registry were documented. Remaining **code-level**
+  cleanups (documented, not yet fixed):
+    - **EA version strings disagree** — `#property version` is `2.30` (canonical), but the startup
+      `Print` emits `v2.20`, the JSON feed reports `"version":"2.00"`, and a `PushBars` comment says
+      `v2.31`. Only `#property` is right; the emitted strings should be normalized to 2.30.
+    - **Two autostart paths** — `watchdog-install.sh` (root + `trading-bot/`, identical) installs
+      `com.slc.*` services on the correct port 8766 and is current; `install_autostart.sh` + `watchdog.sh`
+      install `com.tradingbot.*` and health-check **port 8765** — they are legacy and should be removed
+      or relocated.
+    - **Stale legacy script copies** — `reset_ledger.py`, `shadow_report.py`, `shadow_report_corrected.py`,
+      `spread_report.py`, `pattern_sanity_check.py` are copies of `legacy/.../tools/*` whose docstrings
+      still say `python3 tools/<name>` and resolve paths assuming a `tools/` subdir; harmless but
+      run-from-root path handling is off.
+    - **`config.example.yaml` == `config.yaml`** — the example is an exact copy rather than a templated
+      placeholder file.
+  The account-size brief (₹10,000 INR) also differs from the ledger's 100,000 base. Treat the live
+  `config.yaml` as authoritative.
 
 ---
 

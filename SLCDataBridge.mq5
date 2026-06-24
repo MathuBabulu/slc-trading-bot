@@ -9,7 +9,7 @@
 //|    1. Open MT5 → Tools → Options → Expert Advisors               |
 //|    2. Tick "Allow WebRequest for listed URL"                     |
 //|    3. Add:  http://<ServerHost>:<ServerPort>                     |
-//|       e.g. http://192.168.68.104:8765                            |
+//|       e.g. http://192.168.68.104:8766                            |
 //|       (one entry covers every endpoint this EA uses)             |
 //|    4. Attach this EA to any chart (e.g. EURUSD M1)               |
 //|                                                                  |
@@ -17,8 +17,10 @@
 //|    Terminal 1:  cd trading-bot && python server.py               |
 //|    Terminal 2:  cd trading-bot && python news_agent.py           |
 //+------------------------------------------------------------------+
-#property copyright "MT5 Data Bridge"
+#property copyright "SLC Data Bridge"
 #property version   "2.30"
+// NOTE: the canonical EA version is 2.30 (this #property). Some runtime strings still emit stale
+// values (startup Print "v2.20", JSON feed "version":"2.00") — a known cleanup item, not a re-version.
 
 #include <Trade\Trade.mqh>
 
